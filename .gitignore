@@ -1,0 +1,5 @@
+node_modules
+dist
+# Clés (Alchemy…) : jamais partagées
+*.local
+.env*

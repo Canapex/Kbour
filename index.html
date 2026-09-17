@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Kbour · Suivi LP</title>
+    <link
+      rel="icon"
+      href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>💧</text></svg>"
+    />
+    <meta name="theme-color" content="#13032c" />
+    <link rel="stylesheet" href="/src/style.css" />
+  </head>
+  <body>
+    <div class="decor" aria-hidden="true">
+      <div class="soleil"></div>
+      <div class="horizon"></div>
+      <div class="grille"></div>
+    </div>
+    <main>
+      <header class="entete">
+        <h1>Suivi de positions LP</h1>
+        <p class="sous-titre">
+          Uniswap v3 (Ethereum, Robinhood Chain) et Aerodrome (Base), lus directement sur la chaîne. Rien n'est enregistré.
+        </p>
+        <form id="formulaire" class="formulaire">
+          <input id="wallet" name="wallet" placeholder="Adresse du wallet (0x…)" autocomplete="off" spellcheck="false" />
+          <button type="submit">Analyser</button>
+          <div id="zone-cle" class="zone-cle" hidden>
+            <input
+              id="cle"
+              name="cle"
+              type="password"
+              placeholder="Ta clé Alchemy (gratuite) pour l'historique"
+              autocomplete="off"
+              spellcheck="false"
+            />
+            <p class="aide">
+              Sans clé, seul l'état actuel s'affiche. La clé reste en mémoire le temps de la visite et n'est enregistrée nulle part.
+              <a href="https://dashboard.alchemy.com/" target="_blank" rel="noopener noreferrer">Créer une clé</a>, puis activer
+              Ethereum, Base et Robinhood Chain dans l'application.
+            </p>
+          </div>
+          <button type="button" id="autre-cle" class="lien-cle" hidden>Utiliser une autre clé Alchemy</button>
+        </form>
+        <p id="statut" class="statut" role="status" aria-live="polite"></p>
+      </header>
+      <section id="resume" class="resume"></section>
+      <section id="positions" class="positions"></section>
+    </main>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
