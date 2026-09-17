@@ -23,10 +23,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      # Active GitHub Pages sur le dépôt si ce n'est pas déjà fait.
-      - uses: actions/configure-pages@v5
-        with:
-          enablement: true
+      # L'activation de Pages se fait une fois dans Settings → Pages → Source : GitHub Actions.
+      # Le jeton des Actions n'a pas le droit de l'activer lui-même.
       - uses: actions/setup-node@v4
         with:
           node-version: 22
