@@ -3,3 +3,6 @@ dist
 # Clés (Alchemy…) : jamais partagées
 *.local
 .env*
+
+# Config locale de l'outil d'aperçu
+.claude/
