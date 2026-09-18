@@ -78,24 +78,26 @@ async function stakeesAerodrome(wallet: Address): Promise<RefPosition[]> {
 }
 
 /** Écarte les positions vidées (liquidité nulle) : les bots en laissent des centaines. */
-async function garderOuvertes(chaine: IdChaine, candidats: RefPosition[]): Promise<{ ouvertes: RefPosition[]; fermees: number }> {
+async function garderOuvertes(chaine: IdChaine, candidats: RefPosition[]): Promise<{ ouvertes: RefPosition[]; fermees: RefPosition[] }> {
   const res = await lireParPaquets(
     CHAINES[chaine].etat,
     candidats.map((c) => ({ address: c.gestionnaire, abi: abiGestionnaire, functionName: 'positions', args: [c.id] })),
   )
   const ouvertes: RefPosition[] = []
-  let fermees = 0
+  const fermees: RefPosition[] = []
   candidats.forEach((c, i) => {
     const p = valeur<readonly unknown[]>(res[i])
-    if (p && (p[7] as bigint) > 0n) ouvertes.push(c)
-    else fermees++
+    if (!p) return
+    if ((p[7] as bigint) > 0n) ouvertes.push(c)
+    else fermees.push(c)
   })
   return { ouvertes, fermees }
 }
 
 export interface Inventaire {
   positions: RefPosition[]
-  fermees: number
+  /** Positions vidées mais toujours détenues : leur histoire reste lisible. */
+  fermees: RefPosition[]
   erreurs: string[]
 }
 
@@ -128,13 +130,13 @@ export async function listerPositions(wallet: Address): Promise<Inventaire> {
     else erreurs.push(`${sources[i].nom} inaccessible (réseau activé dans l'application Alchemy ?) : ${message(r.reason)}`)
   })
   const positions: RefPosition[] = []
-  let fermees = 0
+  const fermees: RefPosition[] = []
   for (const chaine of Object.keys(CHAINES) as IdChaine[]) {
     if (!parChaine[chaine].length) continue
     try {
       const tri = await garderOuvertes(chaine, parChaine[chaine])
       positions.push(...tri.ouvertes)
-      fermees += tri.fermees
+      fermees.push(...tri.fermees)
     } catch (e) {
       erreurs.push(`${CHAINES[chaine].nom} : ${message(e)}`)
     }

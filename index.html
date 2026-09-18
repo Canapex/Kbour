@@ -12,6 +12,16 @@
     <link rel="stylesheet" href="/src/style.css" />
   </head>
   <body>
+    <p
+      class="hors-serveur"
+      hidden
+      style="margin: 40px auto; max-width: 620px; padding: 22px 24px; border: 2px solid #b026ff; border-radius: 14px; font: 17px/1.6 system-ui, sans-serif; color: #2a0b52; background: #f6e9ff"
+    >
+      <strong>Cette page ne s'ouvre pas en double-cliquant sur le fichier.</strong><br />
+      Elle doit être servie, sinon le navigateur n'affiche que le texte brut.<br /><br />
+      Ouvrez <a href="https://canapex.github.io/Kbour/">canapex.github.io/Kbour</a>, ou lancez
+      <code>npm run dev</code> dans le dossier du projet puis ouvrez <code>http://localhost:5180</code>.
+    </p>
     <div class="decor" aria-hidden="true">
       <div class="soleil"></div>
       <div class="horizon"></div>
@@ -47,7 +57,9 @@
       </header>
       <section id="resume" class="resume"></section>
       <section id="positions" class="positions"></section>
+      <section id="fermees" class="fermees"></section>
     </main>
+    <script src="./hors-serveur.js"></script>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

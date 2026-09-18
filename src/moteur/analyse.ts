@@ -15,6 +15,14 @@ export interface Analyse {
   feesEnAttenteUsd: number | null
   aeroEnAttenteUsd: number | null
   historique: Historique | null
+  /** Position vidée : plus de liquidité, seule son histoire reste. */
+  fermee: boolean
+  /** Dernier retrait de capital : date et prix du pool à ce moment-là. */
+  cloture: { horodatage: number; prix: number } | null
+  /** Capital retiré, valorisé au prix du jour de chaque retrait. */
+  retireUsd: number | null
+  /** Face au HODL au moment de la fermeture (et non aux prix d'aujourd'hui). */
+  avanceClotureUsd: number | null
   /** 1. Montant investi : dépôts valorisés au prix du jour de chaque dépôt. */
   investiUsd: number | null
   depose0: number
@@ -74,6 +82,10 @@ export function analyser(
     feesEnAttenteUsd: enUsd(lisible(etat.feesEnAttente0, d0), lisible(etat.feesEnAttente1, d1)),
     aeroEnAttenteUsd: usdAero !== null ? lisible(etat.aeroEnAttente, 18) * usdAero : null,
     historique,
+    fermee: etat.liquidite === 0n,
+    cloture: null,
+    retireUsd: 0,
+    avanceClotureUsd: null,
     investiUsd: null,
     depose0: 0,
     depose1: 0,
@@ -108,6 +120,8 @@ export function analyser(
     } else {
       analyse.retire0 += m.quantite0
       analyse.retire1 += m.quantite1
+      analyse.retireUsd = analyse.retireUsd !== null && usd !== null ? analyse.retireUsd + usd : null
+      analyse.cloture = { horodatage: m.horodatage, prix: m.prix }
     }
     if (usd !== null) flux.push({ horodatage: m.horodatage, usd: m.type === 'depot' ? usd : -usd })
   }
@@ -151,8 +165,10 @@ export function analyser(
     0,
   )
 
-  // 4. Projection annuelle : rendement rapporté au capital moyen engagé, ramené à 365 jours.
-  const secondes = etat.horodatage - historique.ouverture.horodatage
+  // 4. Rendement annualisé : rapporté au capital moyen engagé, jusqu'à aujourd'hui
+  //    ou jusqu'à la fermeture pour une position vidée.
+  const finDeVie = analyse.fermee && analyse.cloture ? analyse.cloture.horodatage : etat.horodatage
+  const secondes = finDeVie - historique.ouverture.horodatage
   analyse.jours = secondes / 86_400
   if (analyse.rendementUsd !== null && flux.length && secondes > 3_600) {
     flux.sort((a, b) => a.horodatage - b.horodatage)
@@ -160,7 +176,7 @@ export function analyser(
     let integrale = 0
     for (let i = 0; i < flux.length; i++) {
       capital += flux[i].usd
-      const fin = i + 1 < flux.length ? flux[i + 1].horodatage : etat.horodatage
+      const fin = i + 1 < flux.length ? flux[i + 1].horodatage : finDeVie
       integrale += Math.max(capital, 0) * (fin - flux[i].horodatage)
     }
     const capitalMoyen = integrale / secondes
@@ -185,6 +201,13 @@ export function analyser(
   const avance = avanceSurHodl(comparaison, etat.prix)
   analyse.avanceSurHodlUsd = usd1 !== null ? avance * usd1 : null
   analyse.breakEven = zoneGagnante(comparaison, etat.prix, avance >= 0)
+
+  // Pour une position fermée, le résultat qui compte est celui du jour de la fermeture.
+  if (analyse.fermee && analyse.cloture) {
+    const prixCloture = prixPasses.get(analyse.cloture.horodatage)?.get(cle1) ?? (estStable(etat.jeton1.symbole) ? 1 : usd1)
+    const ecart = avanceSurHodl(comparaison, analyse.cloture.prix)
+    analyse.avanceClotureUsd = prixCloture !== null ? ecart * prixCloture : null
+  }
   return analyse
 }
 

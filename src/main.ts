@@ -12,6 +12,7 @@ import { lireEtats } from './moteur/etat'
 import { reconstruireHistorique, type Historique } from './moteur/historique'
 import { listerPositions, message } from './moteur/lister'
 import { cleDePrix, prixActuels, prixHistoriquesGroupes, type Prix } from './moteur/prix'
+import type { RefPosition } from './moteur/types'
 import { secondes } from './ui/format'
 import { html, poser } from './ui/html'
 import { carte, resume } from './ui/rendu'
@@ -21,9 +22,9 @@ const champ = document.querySelector<HTMLInputElement>('#wallet')!
 const statut = document.querySelector<HTMLElement>('#statut')!
 const zoneResume = document.querySelector<HTMLElement>('#resume')!
 const zonePositions = document.querySelector<HTMLElement>('#positions')!
+const zoneFermees = document.querySelector<HTMLElement>('#fermees')!
 const zoneCle = document.querySelector<HTMLElement>('#zone-cle')!
 const champCle = document.querySelector<HTMLInputElement>('#cle')!
-
 const boutonAutreCle = document.querySelector<HTMLButtonElement>('#autre-cle')!
 
 // Sans .env.local (dossier copié chez quelqu'un d'autre), chacun colle sa propre clé.
@@ -43,41 +44,25 @@ function dire(texte: string, erreur = false) {
   statut.classList.toggle('erreur', erreur)
 }
 
-async function analyserWallet(wallet: Address) {
-  const numero = ++analyseEnCours
-  const abandonnee = () => numero !== analyseEnCours
-  const chrono = Date.now()
-  poser(zoneResume, html``)
-  poser(zonePositions, html``)
-  dire('Recherche des positions du wallet…')
-
-  const inventaire = await listerPositions(wallet)
-  if (abandonnee()) return
-  if (!inventaire.positions.length) {
-    dire(
-      inventaire.erreurs.length
-        ? `Lecture impossible : ${inventaire.erreurs.join(' ; ')}`
-        : `Aucune position ouverte${inventaire.fermees ? ` (${inventaire.fermees} position${inventaire.fermees > 1 ? 's' : ''} vide${inventaire.fermees > 1 ? 's' : ''} ignorée${inventaire.fermees > 1 ? 's' : ''})` : ''}.`,
-      inventaire.erreurs.length > 0,
-    )
-    return
-  }
-
-  dire(`${inventaire.positions.length} position${inventaire.positions.length > 1 ? 's' : ''} trouvée${inventaire.positions.length > 1 ? 's' : ''}, lecture de leur état…`)
-  const etats = await lireEtats(inventaire.positions, wallet)
+/** Analyse un lot de positions : l'état s'affiche tout de suite, l'histoire de chacune arrive ensuite. */
+async function analyserLot(
+  refs: RefPosition[],
+  wallet: Address,
+  conteneur: HTMLElement,
+  abandonnee: () => boolean,
+): Promise<Analyse[]> {
+  const etats = await lireEtats(refs, wallet)
   const prixDuJour = await prixActuels([
     ...etats.flatMap((e) => [cleDePrix(e.ref.chaine, e.jeton0.adresse), cleDePrix(e.ref.chaine, e.jeton1.adresse)]),
     cleDePrix('base', AERODROME.aero),
   ]).catch(() => new Map() as Prix)
-  if (abandonnee()) return
+  if (abandonnee()) return []
 
-  // Première passe : l'état actuel s'affiche tout de suite, l'historique arrive ensuite.
   const emplacements = etats.map(() => document.createElement('div'))
-  zonePositions.replaceChildren(...emplacements)
+  conteneur.replaceChildren(...emplacements)
   etats.forEach((etat, i) => poser(emplacements[i], carte(analyser(etat, null, prixDuJour, new Map()), null)))
-  dire('Lecture du journal de chaque position…')
 
-  const analyses: Analyse[] = await Promise.all(
+  return Promise.all(
     etats.map(async (etat, i) => {
       let historique: Historique | null = null
       let erreur: string | null = null
@@ -95,11 +80,68 @@ async function analyserWallet(wallet: Address) {
       return analyse
     }),
   )
+}
+
+/** Les positions vidées ne sont lues que si on les demande : leur histoire coûte quelques requêtes chacune. */
+function proposerFermees(refs: RefPosition[], wallet: Address, abandonnee: () => boolean) {
+  if (!refs.length) return
+  const pluriel = refs.length > 1 ? 's' : ''
+  poser(
+    zoneFermees,
+    html`
+      <button type="button" id="voir-fermees" class="bouton-secondaire">
+        Voir les ${refs.length} position${pluriel} fermée${pluriel}
+      </button>
+      <div id="liste-fermees" class="positions"></div>
+    `,
+  )
+  const bouton = document.querySelector<HTMLButtonElement>('#voir-fermees')!
+  const liste = document.querySelector<HTMLElement>('#liste-fermees')!
+  bouton.addEventListener('click', async () => {
+    bouton.disabled = true
+    bouton.textContent = 'Lecture de leur histoire…'
+    try {
+      await analyserLot(refs, wallet, liste, abandonnee)
+      bouton.remove()
+    } catch (e) {
+      bouton.disabled = false
+      bouton.textContent = `Échec : ${message(e)} — réessayer`
+    }
+  })
+}
+
+async function analyserWallet(wallet: Address) {
+  const numero = ++analyseEnCours
+  const abandonnee = () => numero !== analyseEnCours
+  const chrono = Date.now()
+  poser(zoneResume, html``)
+  poser(zonePositions, html``)
+  poser(zoneFermees, html``)
+  dire('Recherche des positions du wallet…')
+
+  const inventaire = await listerPositions(wallet)
   if (abandonnee()) return
-  poser(zoneResume, resume(analyses))
-  const ignorees = inventaire.fermees ? ` · ${inventaire.fermees} position${inventaire.fermees > 1 ? 's' : ''} vide${inventaire.fermees > 1 ? 's' : ''} ignorée${inventaire.fermees > 1 ? 's' : ''}` : ''
+  if (!inventaire.positions.length && !inventaire.fermees.length) {
+    dire(
+      inventaire.erreurs.length ? `Lecture impossible : ${inventaire.erreurs.join(' ; ')}` : 'Aucune position trouvée pour ce wallet.',
+      inventaire.erreurs.length > 0,
+    )
+    return
+  }
+
+  if (inventaire.positions.length) {
+    const pluriel = inventaire.positions.length > 1 ? 's' : ''
+    dire(`${inventaire.positions.length} position${pluriel} ouverte${pluriel}, lecture de leur état…`)
+    const analyses = await analyserLot(inventaire.positions, wallet, zonePositions, abandonnee)
+    if (abandonnee()) return
+    poser(zoneResume, resume(analyses))
+  } else {
+    poser(zonePositions, html`<p class="statut">Aucune position ouverte pour ce wallet.</p>`)
+  }
+
+  proposerFermees(inventaire.fermees, wallet, abandonnee)
   const erreurs = inventaire.erreurs.length ? ` · ${inventaire.erreurs.join(' ; ')}` : ''
-  dire(`Analyse terminée en ${secondes((Date.now() - chrono) / 1000)}${ignorees}${erreurs}`, inventaire.erreurs.length > 0)
+  dire(`Analyse terminée en ${secondes((Date.now() - chrono) / 1000)}${erreurs}`, inventaire.erreurs.length > 0)
 }
 
 function lancer(saisie: string) {

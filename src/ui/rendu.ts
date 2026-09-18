@@ -5,13 +5,15 @@ import type { EtatPosition } from '../moteur/types'
 import * as F from './format'
 import { html, type Fragment } from './html'
 
-function badges(e: EtatPosition): Fragment {
+function badges(e: EtatPosition, fermee: boolean): Fragment {
   const protocole = e.ref.protocole === 'aerodrome' ? 'Aerodrome' : 'Uniswap v3'
   return html`
     <span class="badge">${protocole} · ${CHAINES[e.ref.chaine].nom}</span>
     <span class="badge discret">#${e.ref.id.toString()}</span>
     ${e.ref.gauge ? html`<span class="badge accent">Stakée</span>` : ''}
-    <span class="badge ${e.dansLaFourchette ? 'vert' : 'rouge'}">${e.dansLaFourchette ? 'Dans la fourchette' : 'Hors fourchette'}</span>
+    ${fermee
+      ? html`<span class="badge discret">Fermée</span>`
+      : html`<span class="badge ${e.dansLaFourchette ? 'vert' : 'rouge'}">${e.dansLaFourchette ? 'Dans la fourchette' : 'Hors fourchette'}</span>`}
   `
 }
 
@@ -103,14 +105,30 @@ function tuiles(a: Analyse, erreur: string | null): Fragment {
               : `Aucun retrait de fees · en attente ${F.dollars(a.feesEnAttenteUsd)}`
           }</span>`,
       )}
-      ${tuile(4, 'Projection annuelle', `${F.pourcent(a.aprPourcent)} / an`, `Moyenne sur ${F.duree(a.jours)} au rythme actuel`)}
-      ${tuile(
-        5,
-        'Break-even face au HODL',
-        html`<span class="${(a.avanceSurHodlUsd ?? 0) >= 0 ? 'vert' : 'rouge'}">${F.dollars(a.avanceSurHodlUsd, true)}</span> <small>aujourd'hui</small>`,
-        zoneHodl(a),
-      )}
-      ${tuile(6, 'Alerte Telegram', 'À venir', 'Prévenir quand le prix approche d’une borne.', 'inactive')}
+      ${a.fermee
+        ? tuile(4, 'Rendement annualisé', `${F.pourcent(a.aprPourcent)} / an`, `Sur ${F.duree(a.jours)}, jusqu'à la fermeture`)
+        : tuile(4, 'Projection annuelle', `${F.pourcent(a.aprPourcent)} / an`, `Moyenne sur ${F.duree(a.jours)} au rythme actuel`)}
+      ${a.fermee
+        ? tuile(
+            5,
+            'Résultat face au HODL',
+            html`<span class="${(a.avanceClotureUsd ?? 0) >= 0 ? 'vert' : 'rouge'}">${F.dollars(a.avanceClotureUsd, true)}</span>`,
+            a.cloture ? `Au prix du jour de la fermeture, le ${F.date(a.cloture.horodatage)}` : 'Position vidée',
+          )
+        : tuile(
+            5,
+            'Break-even face au HODL',
+            html`<span class="${(a.avanceSurHodlUsd ?? 0) >= 0 ? 'vert' : 'rouge'}">${F.dollars(a.avanceSurHodlUsd, true)}</span> <small>aujourd'hui</small>`,
+            zoneHodl(a),
+          )}
+      ${a.fermee
+        ? tuile(
+            6,
+            'Capital retiré',
+            F.dollars(a.retireUsd),
+            `${F.nombre(a.retire0)} ${e.jeton0.symbole} + ${F.nombre(a.retire1)} ${e.jeton1.symbole}, au prix de chaque retrait`,
+          )
+        : tuile(6, 'Alerte Telegram', 'À venir', 'Prévenir quand le prix approche d’une borne.', 'inactive')}
     </div>
   `
 }
@@ -183,16 +201,31 @@ export function carte(a: Analyse, erreur: string | null): Fragment {
     <article class="carte">
       <div class="carte-haut">
         <h2>${e.jeton0.symbole} / ${e.jeton1.symbole}</h2>
-        <div class="badges">${badges(e)}</div>
+        <div class="badges">${badges(e, a.fermee)}</div>
       </div>
       <div class="carte-milieu">
         ${fourchette(e)}
-        <div class="valeur">
-          <div class="valeur-titre">Valeur actuelle</div>
-          <div class="valeur-montant">${F.dollars(a.valeurUsd)}</div>
-          <div class="valeur-detail">${F.nombre(e.quantite0)} ${e.jeton0.symbole} + ${F.nombre(e.quantite1)} ${e.jeton1.symbole}</div>
-          <div class="valeur-detail">En attente : fees ${F.dollars(a.feesEnAttenteUsd)}${attenteAero}</div>
-        </div>
+        ${a.fermee
+          ? html`<div class="valeur">
+              <div class="valeur-titre">Sortie de la position</div>
+              <div class="valeur-montant">
+                ${a.historique ? F.dollars((a.retireUsd ?? 0) + (a.feesRetireesUsd ?? 0)) : '—'}
+              </div>
+              <div class="valeur-detail">
+                ${a.historique
+                  ? `Capital ${F.dollars(a.retireUsd)} + fees ${F.dollars(a.feesRetireesUsd)}`
+                  : 'Montants inconnus sans son histoire'}
+              </div>
+              <div class="valeur-detail">
+                ${a.historique ? `Ouverte le ${F.date(a.historique.ouverture.horodatage)}` : ''}${a.cloture ? `, fermée le ${F.date(a.cloture.horodatage)}` : ''}
+              </div>
+            </div>`
+          : html`<div class="valeur">
+              <div class="valeur-titre">Valeur actuelle</div>
+              <div class="valeur-montant">${F.dollars(a.valeurUsd)}</div>
+              <div class="valeur-detail">${F.nombre(e.quantite0)} ${e.jeton0.symbole} + ${F.nombre(e.quantite1)} ${e.jeton1.symbole}</div>
+              <div class="valeur-detail">En attente : fees ${F.dollars(a.feesEnAttenteUsd)}${attenteAero}</div>
+            </div>`}
       </div>
       ${tuiles(a, erreur)}
       ${details(a)}
