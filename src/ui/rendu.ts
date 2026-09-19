@@ -454,7 +454,8 @@ export function carte(a: Analyse, erreur: string | null): Fragment {
  * Aucun script à rebrancher, donc une carte reste une simple chaîne de HTML.
  */
 function onglets(a: Analyse, erreur: string | null): Fragment {
-  const nom = `vue-${a.etat.ref.chaine}-${a.etat.ref.id}`
+  // Le gestionnaire entre dans le nom : deux contrats NFT d'une même chaîne peuvent porter le même numéro.
+  const nom = `vue-${a.etat.ref.chaine}-${a.etat.ref.gestionnaire.slice(2, 8)}-${a.etat.ref.id}`
   return html`
     <div class="onglets">
       <input type="radio" class="onglet-radio" name="${nom}" id="${nom}-resume" checked />
