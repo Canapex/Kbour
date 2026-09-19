@@ -288,6 +288,13 @@ h1 {
 .resume-bloc strong {
   font: 800 30px var(--titre);
   text-shadow: 0 0 16px rgba(255, 43, 214, 0.55);
+  overflow-wrap: anywhere;
+}
+
+.resume-bloc small {
+  margin-top: 4px;
+  font-size: 16px;
+  color: rgba(205, 185, 242, 0.8);
 }
 
 /* ── Cartes de position ──────────────────────────────────────────────────── */
@@ -864,4 +871,15 @@ h1 {
   .grille {
     opacity: 0.22;
   }
+}
+
+.avance-limites {
+  margin: 4px 0 0;
+  padding: 14px 18px;
+  font-size: 16px;
+  line-height: 1.5;
+  color: rgba(205, 185, 242, 0.72);
+  background: rgba(10, 2, 24, 0.4);
+  border: 1px dashed var(--bord-doux);
+  border-radius: 14px;
 }

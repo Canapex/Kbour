@@ -22,12 +22,17 @@ const part = (a: number | null, b: number | null): number | null => (a === null 
 export interface Avance {
   // Résultat
   capitalMoyenUsd: number | null
+  entreUsd: number | null
   sortiUsd: number | null
   resteUsd: number | null
   pnlUsd: number | null
   roiPourcent: number | null
+  roiAnnualisePourcent: number | null
   gainActifsUsd: number | null
   feesTotalUsd: number | null
+  /** Ce que la position a coûté en gas, et la part des fees qu'il n'a pas mangée. */
+  gazUsd: number | null
+  efficacitePourcent: number | null
   // Face au HODL
   hodlUsd: number | null
   ecartHodlUsd: number | null
@@ -36,6 +41,8 @@ export interface Avance {
   vsTout0Pourcent: number | null
   vsTout1Pourcent: number | null
   // Fees
+  fees0Usd: number | null
+  fees1Usd: number | null
   feesEncaisseesUsd: number | null
   feesAttenteUsd: number | null
   partEncaisseePourcent: number | null
@@ -53,12 +60,16 @@ export interface Avance {
   variation1Pourcent: number | null
   // Pool et fourchette
   largeurPourcent: number
+  valeur0Usd: number | null
+  valeur1Usd: number | null
   partJeton0Pourcent: number | null
   tvlPoolUsd: number | null
+  partDuPoolPourcent: number | null
   partLiquiditePourcent: number | null
   fraisPoolPourcent: number | null
   // Chronologie
   operations: number
+  transactions: number
   fermeture: number | null
 }
 
@@ -108,15 +119,27 @@ export function metriquesAvancees(a: Analyse): Avance {
   const valeurVive = a.valeurUsd && a.valeurUsd > 0 ? a.valeurUsd : null
 
   const [bas, haut] = [e.prixBas, e.prixHaut].sort((x, y) => x - y)
+  const valeur0Usd = a.usd0 !== null ? e.quantite0 * a.usd0 : null
+  const valeur1Usd = a.usd1 !== null ? e.quantite1 * a.usd1 : null
+  const tvlPoolUsd =
+    e.reserve0 !== null && e.reserve1 !== null && a.usd0 !== null && a.usd1 !== null
+      ? e.reserve0 * a.usd0 + e.reserve1 * a.usd1
+      : null
 
   return {
     capitalMoyenUsd: a.capitalMoyenUsd,
+    entreUsd: a.investiUsd,
     sortiUsd,
     resteUsd,
     pnlUsd,
     roiPourcent,
+    // Le même rendement ramené à l'année, pour comparer des positions de durées différentes.
+    roiAnnualisePourcent: roiPourcent !== null && a.jours && a.jours > 0 ? (roiPourcent * 365) / a.jours : null,
     gainActifsUsd: moins(pnlUsd, feesTotalUsd),
     feesTotalUsd,
+    gazUsd: a.gazUsd,
+    efficacitePourcent:
+      a.gazUsd !== null && feesTotalUsd !== null && feesTotalUsd > a.gazUsd ? (1 - a.gazUsd / feesTotalUsd) * 100 : null,
 
     hodlUsd: h && a.usd0 !== null && a.usd1 !== null ? a.depose0 * a.usd0 + a.depose1 * a.usd1 : null,
     ecartHodlUsd: a.fermee ? a.avanceClotureUsd : a.avanceSurHodlUsd,
@@ -125,6 +148,8 @@ export function metriquesAvancees(a: Analyse): Avance {
     vsTout0Pourcent: moins(roiPourcent, variation0Pourcent),
     vsTout1Pourcent: moins(roiPourcent, variation1Pourcent),
 
+    fees0Usd: a.usd0 !== null ? a.fees0 * a.usd0 : null,
+    fees1Usd: a.usd1 !== null ? a.fees1 * a.usd1 : null,
     feesEncaisseesUsd,
     feesAttenteUsd,
     partEncaisseePourcent: part(feesEncaisseesUsd, feesTotalUsd),
@@ -146,11 +171,11 @@ export function metriquesAvancees(a: Analyse): Avance {
     variation1Pourcent,
 
     largeurPourcent: ((haut - bas) / ((haut + bas) / 2)) * 100,
-    partJeton0Pourcent: a.usd0 !== null ? part(e.quantite0 * a.usd0, a.valeurUsd) : null,
-    tvlPoolUsd:
-      e.reserve0 !== null && e.reserve1 !== null && a.usd0 !== null && a.usd1 !== null
-        ? e.reserve0 * a.usd0 + e.reserve1 * a.usd1
-        : null,
+    valeur0Usd,
+    valeur1Usd,
+    partJeton0Pourcent: part(valeur0Usd, a.valeurUsd),
+    tvlPoolUsd,
+    partDuPoolPourcent: part(a.valeurUsd, tvlPoolUsd),
     partLiquiditePourcent:
       e.dansLaFourchette && e.liquiditeActive && e.liquiditeActive > 0n
         ? (Number(e.liquidite) / Number(e.liquiditeActive)) * 100
@@ -158,6 +183,7 @@ export function metriquesAvancees(a: Analyse): Avance {
     fraisPoolPourcent: e.fraisPool !== null ? e.fraisPool / 10_000 : null,
 
     operations: h ? h.mouvements.length + h.reclamations.length : 0,
+    transactions: a.transactions,
     fermeture: a.cloture?.horodatage ?? null,
   }
 }

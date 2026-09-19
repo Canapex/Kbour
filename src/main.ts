@@ -11,7 +11,7 @@ import { AERODROME, cleConfiguree, verifierCle } from './moteur/chaines'
 import { lireEtats } from './moteur/etat'
 import { reconstruireHistorique, type Historique } from './moteur/historique'
 import { listerPositions, message } from './moteur/lister'
-import { cleDePrix, prixActuels, prixHistoriquesGroupes, type Prix } from './moteur/prix'
+import { CLE_GAZ, cleDePrix, prixActuels, prixHistoriquesGroupes, type Prix } from './moteur/prix'
 import type { RefPosition } from './moteur/types'
 import { secondes } from './ui/format'
 import { html, poser } from './ui/html'
@@ -55,6 +55,7 @@ async function analyserLot(
   const prixDuJour = await prixActuels([
     ...etats.flatMap((e) => [cleDePrix(e.ref.chaine, e.jeton0.adresse), cleDePrix(e.ref.chaine, e.jeton1.adresse)]),
     cleDePrix('base', AERODROME.aero),
+    CLE_GAZ,
   ]).catch(() => new Map() as Prix)
   if (abandonnee()) return []
 
@@ -71,7 +72,7 @@ async function analyserLot(
       } catch (e) {
         erreur = message(e)
       }
-      const cles = [cleDePrix(etat.ref.chaine, etat.jeton0.adresse), cleDePrix(etat.ref.chaine, etat.jeton1.adresse)]
+      const cles = [cleDePrix(etat.ref.chaine, etat.jeton0.adresse), cleDePrix(etat.ref.chaine, etat.jeton1.adresse), CLE_GAZ]
       const passes = historique
         ? await prixHistoriquesGroupes(cles, horodatagesUtiles(historique)).catch(() => new Map<number, Prix>())
         : new Map<number, Prix>()

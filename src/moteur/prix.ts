@@ -9,6 +9,9 @@ export type Prix = Map<string, number>
 
 export const cleDePrix = (chaine: IdChaine, adresse: Address): string => `${CHAINES[chaine].llama}:${adresse.toLowerCase()}`
 
+/** Le jeton qui paie le gas : de l'ETH sur les trois chaînes (Base et Robinhood sont des rollups Ethereum). */
+export const CLE_GAZ = 'coingecko:ethereum'
+
 async function interroger(chemin: string, cles: string[]): Promise<Prix> {
   const prix: Prix = new Map()
   const uniques = [...new Set(cles)]

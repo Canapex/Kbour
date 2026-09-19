@@ -9,7 +9,7 @@ import { lireEtats } from '../src/moteur/etat'
 import { reconstruireHistorique, type Historique } from '../src/moteur/historique'
 import { listerPositions, message } from '../src/moteur/lister'
 import { lisible } from '../src/moteur/maths'
-import { cleDePrix, prixActuels, prixHistoriquesGroupes, type Prix } from '../src/moteur/prix'
+import { CLE_GAZ, cleDePrix, prixActuels, prixHistoriquesGroupes, type Prix } from '../src/moteur/prix'
 import type { RefPosition } from '../src/moteur/types'
 import * as F from '../src/ui/format'
 
@@ -36,6 +36,7 @@ async function traiter(refs: RefPosition[]): Promise<{ analyse: Analyse; erreur:
   const prixDuJour = await prixActuels([
     ...etats.flatMap((e) => [cleDePrix(e.ref.chaine, e.jeton0.adresse), cleDePrix(e.ref.chaine, e.jeton1.adresse)]),
     cleDePrix('base', AERODROME.aero),
+    CLE_GAZ,
   ])
   return Promise.all(
     etats.map(async (etat) => {
@@ -46,7 +47,7 @@ async function traiter(refs: RefPosition[]): Promise<{ analyse: Analyse; erreur:
       } catch (e) {
         erreur = message(e)
       }
-      const cles = [cleDePrix(etat.ref.chaine, etat.jeton0.adresse), cleDePrix(etat.ref.chaine, etat.jeton1.adresse)]
+      const cles = [cleDePrix(etat.ref.chaine, etat.jeton0.adresse), cleDePrix(etat.ref.chaine, etat.jeton1.adresse), CLE_GAZ]
       const passes = historique
         ? await prixHistoriquesGroupes(cles, horodatagesUtiles(historique)).catch(() => new Map<number, Prix>())
         : new Map<number, Prix>()
@@ -141,15 +142,21 @@ function afficherAvance(a: Analyse) {
   )
   console.log(
     `     Fees         ${F.dollars(m.feesTotalUsd)} dont ${F.dollars(m.feesEncaisseesUsd)} encaissées (${F.pourcent(m.partEncaisseePourcent)})` +
+      ` · ${s0} ${F.dollars(m.fees0Usd)} + ${s1} ${F.dollars(m.fees1Usd)}` +
       ` · ${F.dollars(m.feesParJourUsd)} par jour · rythme récent ${F.pourcent(m.aprRecentPourcent)} par an`,
+  )
+  console.log(
+    `     Coûts        gas ${F.dollarsFins(m.gazUsd)} sur ${m.transactions} transaction(s)${a.historique?.gazConnu === false ? ' (au moins)' : ''}` +
+      ` · efficacité ${F.pourcent(m.efficacitePourcent)} · ROI annualisé ${F.pourcent(m.roiAnnualisePourcent, true)} par an`,
   )
   console.log(
     `     Prix         entrée ${s0} ${F.dollars(m.entree0)} (${F.pourcent(m.variation0Pourcent, true)} depuis) · ${s1} ${F.dollars(m.entree1)} (${F.pourcent(m.variation1Pourcent, true)} depuis)` +
       ` · sortie ${s0} ${F.dollars(m.sortie0)} · ${s1} ${F.dollars(m.sortie1)}`,
   )
   console.log(
-    `     Pool         largeur ${F.pourcent(m.largeurPourcent)} · répartition ${F.pourcent(m.partJeton0Pourcent)} ${s0}` +
-      ` · TVL ${F.dollars(m.tvlPoolUsd)} · part active ${F.taux(m.partLiquiditePourcent)} · frais ${F.taux(m.fraisPoolPourcent)}`,
+    `     Pool         largeur ${F.pourcent(m.largeurPourcent)} · ${s0} ${F.dollars(m.valeur0Usd)} + ${s1} ${F.dollars(m.valeur1Usd)}` +
+      ` (${F.pourcent(m.partJeton0Pourcent)} / ${F.pourcent(m.partJeton0Pourcent === null ? null : 100 - m.partJeton0Pourcent)})` +
+      ` · TVL ${F.dollars(m.tvlPoolUsd)} · part du pool ${F.taux(m.partDuPoolPourcent)} · part active ${F.taux(m.partLiquiditePourcent)} · frais ${F.taux(m.fraisPoolPourcent)}`,
   )
 }
 

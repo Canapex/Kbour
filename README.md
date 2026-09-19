@@ -16,10 +16,15 @@ On entre une adresse de wallet, la page lit tout sur la chaîne et affiche, pour
 
 Les positions **fermées** se chargent à la demande, avec leur résultat au jour de leur fermeture.
 
-Chaque carte a un onglet **Avancé** : résultat net et ROI, gain dû au prix des jetons, capital moyen engagé,
-perte de divergence et rétention des fees, comparaison avec « tout en jeton A » ou « tout en jeton B »,
-prix d'entrée et de sortie moyens, rythme récent des fees, TVL du pool, part de la liquidité active,
-frais du pool et chronologie. Chaque mesure est définie sous sa valeur.
+En haut, un tableau de bord additionne les positions : valeur, résultat net et ROI, fees générées,
+écart face au HODL, rendement annualisé pondéré par le capital engagé.
+
+Chaque carte a un onglet **Avancé**, une quarantaine de mesures en six groupes : résultat net, ROI et ROI
+annualisé, gain dû au prix des jetons, capital moyen engagé, perte de divergence, rétention des fees,
+comparaison avec « tout en jeton A » ou « tout en jeton B », prix d'entrée et de sortie moyens, fees par
+jeton, rythme récent, **coût en gas** (frais L1 des rollups compris) et part des fees qu'il laisse, TVL du
+pool, part du pool, part de la liquidité active, frais du pool, chronologie. Chaque mesure est définie sous
+sa valeur.
 
 ## Rien n'est enregistré
 

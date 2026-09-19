@@ -62,12 +62,17 @@ export interface Historique {
   /** AERO gagnés sur toutes les périodes stakées, pénalités de sortie anticipée déduites. */
   aero: bigint
   penalites: bigint
+  /** Une entrée par transaction de la position : ce qu'elle a coûté en gas, frais L1 compris. */
+  transactions: { horodatage: number; gaz: bigint }[]
+  /** Faux si un reçu n'a pas pu être lu : le total en gas serait sous-estimé. */
+  gazConnu: boolean
   requetes: number
   secondes: number
 }
 
 interface LogBrut {
   address: Address
+  transactionHash: Hex
   blockNumber: Hex
   logIndex: Hex
   data: Hex
@@ -143,6 +148,27 @@ export async function reconstruireHistorique(etat: EtatPosition): Promise<Histor
       const bloc = await chaine.limiterArchive(() => chaine.archive.getBlock({ blockNumber: b }))
       heures.set(b, Number(bloc.timestamp))
       requetes++
+    }),
+  )
+
+  // Coût en gas : un reçu par transaction de la position. Les rollups facturent en plus
+  // la publication sur Ethereum (l1Fee), que le reçu porte quand la chaîne la sépare.
+  const heureDeLaTransaction = new Map<Hex, number>()
+  for (const log of [...brutsNft, ...brutsTransferts]) {
+    heureDeLaTransaction.set(log.transactionHash, heures.get(BigInt(log.blockNumber))!)
+  }
+  let gazConnu = true
+  const transactions = await Promise.all(
+    [...heureDeLaTransaction].map(async ([hash, horodatage]) => {
+      try {
+        const recu = await chaine.limiterArchive(() => chaine.archive.getTransactionReceipt({ hash }))
+        requetes++
+        const l1 = (recu as { l1Fee?: bigint | null }).l1Fee ?? 0n
+        return { horodatage, gaz: recu.gasUsed * recu.effectiveGasPrice + l1 }
+      } catch {
+        gazConnu = false
+        return { horodatage, gaz: 0n }
+      }
     }),
   )
 
@@ -298,6 +324,8 @@ export async function reconstruireHistorique(etat: EtatPosition): Promise<Histor
     fees1: collecte1 - retire1 + etat.feesEnAttente1,
     aero: periodesStakees.reduce((s, p) => s + p.aero, 0n) - penalites,
     penalites,
+    transactions,
+    gazConnu,
     requetes,
     secondes: (Date.now() - chrono) / 1000,
   }

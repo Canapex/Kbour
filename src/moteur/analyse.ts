@@ -2,7 +2,7 @@ import { AERODROME } from './chaines'
 import { estStable } from './jetons'
 import type { Historique } from './historique'
 import { avanceSurHodl, lisible, prixDeBreakEven, type Comparaison } from './maths'
-import { cleDePrix, type Prix } from './prix'
+import { CLE_GAZ, cleDePrix, type Prix } from './prix'
 import type { EtatPosition } from './types'
 
 /** Les six fonctions demandées, pour une position. Montants en dollars aux prix du jour sauf mention. */
@@ -45,6 +45,10 @@ export interface Analyse {
   jours: number | null
   /** Capital réellement engagé, pondéré par le temps : la base du calcul ci-dessus. */
   capitalMoyenUsd: number | null
+  /** Gas payé par toutes les transactions de la position, chacune au prix de l'ETH de sa date. */
+  gazUsd: number | null
+  /** Nombre de transactions qui ont touché la position. */
+  transactions: number
   /** Chaque dépôt et retrait de capital valorisé au prix de sa date (repli sur le prix du jour). */
   mouvementsUsd: {
     type: 'depot' | 'retrait'
@@ -113,6 +117,8 @@ export function analyser(
     aprPourcent: null,
     jours: null,
     capitalMoyenUsd: null,
+    gazUsd: null,
+    transactions: 0,
     mouvementsUsd: [],
     avanceSurHodlUsd: null,
     breakEven: { enAvance: false, bas: null, haut: null, existe: false },
@@ -149,6 +155,18 @@ export function analyser(
     if (usd !== null) flux.push({ horodatage: m.horodatage, usd: m.type === 'depot' ? usd : -usd })
   }
   analyse.investiUsd = investi
+
+  // Coût en gas : chaque transaction au prix de l'ETH du jour où elle a été envoyée.
+  // Un reçu illisible compte pour zéro : le total est alors un minimum, signalé par historique.gazConnu.
+  analyse.transactions = historique.transactions.length
+  const prixGazDuJour = prixDuJour.get(CLE_GAZ) ?? null
+  let gaz: number | null = 0
+  for (const t of historique.transactions) {
+    const prixEth = prixPasses.get(t.horodatage)?.get(CLE_GAZ) ?? prixGazDuJour
+    if (prixEth === null || gaz === null) gaz = null
+    else gaz += (Number(t.gaz) / 1e18) * prixEth
+  }
+  analyse.gazUsd = gaz
 
   // 2. Prix à l'entrée : celui du premier dépôt.
   const premier = historique.mouvements.find((m) => m.type === 'depot')
@@ -254,7 +272,11 @@ function zoneGagnante(c: Comparaison, prix: number, enAvance: boolean): Analyse[
   }
 }
 
-/** Horodatages dont il faut les prix passés : chaque dépôt ou retrait de capital, chaque retrait de fees. */
+/** Horodatages dont il faut les prix passés : chaque mouvement, chaque retrait de fees, chaque transaction. */
 export const horodatagesUtiles = (h: Historique): number[] => [
-  ...new Set([...h.mouvements.map((m) => m.horodatage), ...h.reclamations.map((r) => r.horodatage)]),
+  ...new Set([
+    ...h.mouvements.map((m) => m.horodatage),
+    ...h.reclamations.map((r) => r.horodatage),
+    ...h.transactions.map((t) => t.horodatage),
+  ]),
 ]

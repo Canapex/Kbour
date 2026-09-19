@@ -229,12 +229,15 @@ function panneauAvance(a: Analyse, erreur: string | null): Fragment {
   // Le pool se lit dans la photo : ce groupe s'affiche même quand le journal manque.
   const pool = groupe('Pool et fourchette', [
     mesure('Largeur de la fourchette', F.pourcent(m.largeurPourcent), 'Écart entre les deux bornes, rapporté à leur milieu.'),
+    mesure(`Valeur en ${s0}`, F.dollars(m.valeur0Usd), `${F.nombre(e.quantite0)} ${s0} dans la position.`),
+    mesure(`Valeur en ${s1}`, F.dollars(m.valeur1Usd), `${F.nombre(e.quantite1)} ${s1} dans la position.`),
     mesure(
       'Répartition actuelle',
       part0 === null ? '—' : html`${F.pourcent(part0)} <small>${s0}</small> · ${F.pourcent(100 - part0)} <small>${s1}</small>`,
       'Ce que vaut chaque jeton dans la position, au prix du jour.',
     ),
     mesure('TVL du pool', F.dollars(m.tvlPoolUsd), 'Ce que le contrat du pool détient, toutes fourchettes confondues.'),
+    mesure('Part du pool', F.taux(m.partDuPoolPourcent), 'Ta position rapportée à tout ce que le pool détient.'),
     mesure(
       'Part de la liquidité active',
       F.taux(m.partLiquiditePourcent),
@@ -280,6 +283,11 @@ function panneauAvance(a: Analyse, erreur: string | null): Fragment {
           'Le résultat net rapporté au montant investi.',
         ),
         mesure(
+          'ROI annualisé',
+          colorer(m.roiAnnualisePourcent, `${F.pourcent(m.roiAnnualisePourcent, true)} / an`),
+          'Le même rendement ramené à l’année, pour comparer des durées différentes.',
+        ),
+        mesure(
           'Gain sur les actifs',
           colorer(m.gainActifsUsd, F.dollars(m.gainActifsUsd, true)),
           'Le résultat net sans les fees : la part due au prix des jetons.',
@@ -289,6 +297,7 @@ function panneauAvance(a: Analyse, erreur: string | null): Fragment {
           F.dollars(m.capitalMoyenUsd),
           'Moyenne pondérée par le temps ; c’est la base du rendement annualisé.',
         ),
+        mesure('Total entré', F.dollars(m.entreUsd), 'Tous les dépôts, chacun au prix du jour où il a été fait.'),
         mesure('Total sorti', F.dollars(m.sortiUsd), 'Capital retiré et fees encaissées, chacun au prix de sa date.'),
         mesure('Reste en position', F.dollars(m.resteUsd), 'Valeur actuelle plus ce qui n’a pas encore été réclamé.'),
       ])}
@@ -326,13 +335,15 @@ function panneauAvance(a: Analyse, erreur: string | null): Fragment {
           F.dollars(m.feesTotalUsd),
           `${F.nombre(a.fees0)} ${s0} + ${F.nombre(a.fees1)} ${s1}${aero ? ` + ${F.nombre(a.aero)} AERO` : ''}`,
         ),
+        mesure(`Fees en ${s0}`, F.dollars(m.fees0Usd), `${F.nombre(a.fees0)} ${s0}, au prix du jour.`),
+        mesure(`Fees en ${s1}`, F.dollars(m.fees1Usd), `${F.nombre(a.fees1)} ${s1}, au prix du jour.`),
         mesure(
           'Encaissées',
           F.dollars(m.feesEncaisseesUsd),
           `${F.pourcent(m.partEncaisseePourcent)} du total, en ${h.reclamations.length} retrait${h.reclamations.length > 1 ? 's' : ''}.`,
         ),
         mesure('En attente', F.dollars(m.feesAttenteUsd), 'Réclamable maintenant, sans fermer la position.'),
-        mesure('Fees par jour', F.dollars(m.feesParJourUsd), `Moyenne sur ${F.duree(a.jours)} de vie.`),
+        mesure('Fees par jour', F.dollarsFins(m.feesParJourUsd), `Moyenne sur ${F.duree(a.jours)} de vie.`),
         mesure(
           'Rythme récent',
           html`${F.pourcent(m.aprRecentPourcent)} <small>/ an</small>`,
@@ -351,26 +362,39 @@ function panneauAvance(a: Analyse, erreur: string | null): Fragment {
                 : 'Récompenses du gauge déjà sorties du contrat.',
             )
           : mesure('Récompenses', '—', 'Ce protocole ne distribue que les fees du pool.'),
+        mesure(
+          'Coût en gas',
+          F.dollarsFins(m.gazUsd),
+          `${m.transactions} transaction${m.transactions > 1 ? 's' : ''}, chacune au prix de l’ETH de sa date` +
+            `${h.gazConnu ? '.' : ' (un reçu illisible : total sous-estimé).'}`,
+        ),
+        mesure(
+          'Efficacité',
+          F.pourcent(m.efficacitePourcent),
+          m.efficacitePourcent === null
+            ? 'Les fees ne couvrent pas encore le gas.'
+            : 'Part des fees que le gas n’a pas mangée.',
+        ),
       ])}
       ${groupe('Prix', [
         mesure(
           `Entrée moyenne ${s0}`,
-          F.dollars(m.entree0),
-          `Aujourd’hui ${F.dollars(a.usd0)} (${F.pourcent(m.variation0Pourcent, true)}).`,
+          F.dollarsFins(m.entree0),
+          `Aujourd’hui ${F.dollarsFins(a.usd0)} (${F.pourcent(m.variation0Pourcent, true)}).`,
         ),
         mesure(
           `Entrée moyenne ${s1}`,
-          F.dollars(m.entree1),
-          `Aujourd’hui ${F.dollars(a.usd1)} (${F.pourcent(m.variation1Pourcent, true)}).`,
+          F.dollarsFins(m.entree1),
+          `Aujourd’hui ${F.dollarsFins(a.usd1)} (${F.pourcent(m.variation1Pourcent, true)}).`,
         ),
         mesure(
           `Sortie moyenne ${s0}`,
-          F.dollars(m.sortie0),
+          F.dollarsFins(m.sortie0),
           m.sortie0 === null ? 'Aucun retrait de capital pour l’instant.' : `Prix moyen des ${F.nombre(a.retire0)} ${s0} retirés.`,
         ),
         mesure(
           `Sortie moyenne ${s1}`,
-          F.dollars(m.sortie1),
+          F.dollarsFins(m.sortie1),
           m.sortie1 === null ? 'Aucun retrait de capital pour l’instant.' : `Prix moyen des ${F.nombre(a.retire1)} ${s1} retirés.`,
         ),
       ])}
@@ -396,6 +420,11 @@ function panneauAvance(a: Analyse, erreur: string | null): Fragment {
           `${h.mouvements.length} mouvement${h.mouvements.length > 1 ? 's' : ''} de capital, ${h.reclamations.length} retrait${h.reclamations.length > 1 ? 's' : ''} de fees.`,
         ),
         mesure(
+          'Transactions',
+          String(m.transactions),
+          'Une transaction porte souvent deux opérations : retirer et encaisser.',
+        ),
+        mesure(
           'Périodes stakées',
           String(h.periodesStakees.length),
           aero ? 'Une position stakée gagne des AERO mais plus de fees.' : 'Ce protocole n’a pas de gauge.',
@@ -405,8 +434,12 @@ function panneauAvance(a: Analyse, erreur: string | null): Fragment {
           e.bloc.toString(),
           `${F.dateHeure(e.horodatage)} · journal lu en ${h.requetes} requête${h.requetes > 1 ? 's' : ''}.`,
         ),
-        mesure('Coût en gas', '—', 'Non lu : il faudrait le reçu de chacune des transactions.'),
       ])}
+      <p class="avance-limites">
+        Non calculé : les frais d’un robot de rééquilibrage et le coût de ses swaps, qui ne passent pas par le
+        journal de la position, et les mesures réservées aux offres payantes des autres trackers, dont la
+        définition n’est pas publique.
+      </p>
     </div>
   `
 }
@@ -470,14 +503,59 @@ function onglets(a: Analyse, erreur: string | null): Fragment {
   `
 }
 
+/** Le tableau de bord du wallet : les mêmes chiffres que les cartes, additionnés. */
 export function resume(analyses: Analyse[]): Fragment {
-  if (analyses.length < 2) return html``
+  if (!analyses.length) return html``
   const somme = (f: (a: Analyse) => number | null) =>
-    analyses.reduce<number | null>((s, a) => (s === null || f(a) === null ? null : s + (f(a) as number)), 0)
+    analyses.reduce<number | null>((s, a) => {
+      const v = f(a)
+      return s === null || v === null ? null : s + v
+    }, 0)
+  const mesures = new Map(analyses.map((a) => [a, metriquesAvancees(a)]))
+  const m = (f: (x: ReturnType<typeof metriquesAvancees>) => number | null) => somme((a) => f(mesures.get(a)!))
+
+  const pnl = m((x) => x.pnlUsd)
+  const entre = m((x) => x.entreUsd)
+  const roi = pnl !== null && entre ? (pnl / entre) * 100 : null
+  const attente = m((x) => x.feesAttenteUsd)
+  // APR d'ensemble : chaque position pèse le capital qu'elle a réellement immobilisé.
+  const poids = somme((a) => a.capitalMoyenUsd)
+  const aprPondere =
+    poids !== null && poids > 0
+      ? somme((a) => (a.aprPourcent === null || a.capitalMoyenUsd === null ? null : a.aprPourcent * a.capitalMoyenUsd))
+      : null
   const dansFourchette = analyses.filter((a) => a.etat.dansLaFourchette).length
+  const bloc = (titre: string, valeur: Fragment | string, note = '') =>
+    html`<div class="resume-bloc">
+      <span>${titre}</span><strong>${valeur}</strong>${note ? html`<small>${note}</small>` : ''}
+    </div>`
+
+  // Sans journal, la moitié des totaux serait un tiret : on s'en tient à ce que la photo donne.
+  if (analyses.every((x) => !x.historique)) {
+    return html`
+      ${bloc('Valeur totale', F.dollars(somme((x) => x.valeurUsd)), `${analyses.length} position${analyses.length > 1 ? 's' : ''}`)}
+      ${bloc('Fees en attente', F.dollars(attente), 'réclamables sans fermer')}
+      ${bloc('Dans la fourchette', `${dansFourchette} / ${analyses.length}`, 'positions au travail')}
+    `
+  }
   return html`
-    <div class="resume-bloc"><span>Valeur totale</span><strong>${F.dollars(somme((a) => a.valeurUsd))}</strong></div>
-    <div class="resume-bloc"><span>Rendement total</span><strong>${F.dollars(somme((a) => a.rendementUsd))}</strong></div>
-    <div class="resume-bloc"><span>Dans la fourchette</span><strong>${dansFourchette} / ${analyses.length}</strong></div>
+    ${bloc('Valeur totale', F.dollars(somme((a) => a.valeurUsd)), `${analyses.length} position${analyses.length > 1 ? 's' : ''}`)}
+    ${bloc('Résultat net', colorer(pnl, F.dollars(pnl, true)), `ROI ${F.pourcent(roi, true)}`)}
+    ${bloc(
+      'Fees générées',
+      F.dollars(m((x) => x.feesTotalUsd)),
+      `dont ${F.dollars(attente)} en attente`,
+    )}
+    ${bloc(
+      'Face au HODL',
+      colorer(m((x) => x.ecartHodlUsd), F.dollars(m((x) => x.ecartHodlUsd), true)),
+      'si les jetons avaient été gardés',
+    )}
+    ${bloc(
+      'Rendement annualisé',
+      `${F.pourcent(aprPondere !== null && poids ? aprPondere / poids : null)} / an`,
+      'pondéré par le capital engagé',
+    )}
+    ${bloc('Dans la fourchette', `${dansFourchette} / ${analyses.length}`, 'positions au travail')}
   `
 }
