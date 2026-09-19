@@ -30,6 +30,12 @@ export function pourcent(v: number | null, signe = false): string {
   return `${s}${fr(1, 1).format(Math.abs(v))} %`
 }
 
+/** Taux fin : les frais d'un pool ou une part de liquidité se jouent sous le dixième de pourcent. */
+export function taux(v: number | null): string {
+  if (v === null || !Number.isFinite(v)) return '—'
+  return `${fr(0, Math.abs(v) >= 1 ? 2 : 4).format(v)} %`
+}
+
 export function date(horodatage: number): string {
   return new Date(horodatage * 1000).toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric' })
 }

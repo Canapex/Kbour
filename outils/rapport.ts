@@ -1,8 +1,9 @@
 // Rapport texte des positions d'un wallet : les six chiffres, pour comparer avec Krystal.
-// Usage : npm run rapport -- 0xAdresse [--fermees]   (l'adresse n'est écrite nulle part)
+// Usage : npm run rapport -- 0xAdresse [--fermees] [--avance]   (l'adresse n'est écrite nulle part)
 import './env'
 import { getAddress, isAddress } from 'viem'
 import { analyser, horodatagesUtiles, type Analyse } from '../src/moteur/analyse'
+import { metriquesAvancees } from '../src/moteur/avance'
 import { AERODROME, CHAINES } from '../src/moteur/chaines'
 import { lireEtats } from '../src/moteur/etat'
 import { reconstruireHistorique, type Historique } from '../src/moteur/historique'
@@ -14,8 +15,9 @@ import * as F from '../src/ui/format'
 
 const saisie = process.argv[2]
 const avecFermees = process.argv.includes('--fermees')
+const avecAvance = process.argv.includes('--avance')
 if (!saisie || !isAddress(saisie)) {
-  console.error('usage : npm run rapport -- 0xAdresseDuWallet [--fermees]')
+  console.error('usage : npm run rapport -- 0xAdresseDuWallet [--fermees] [--avance]')
   process.exit(1)
 }
 const wallet = getAddress(saisie)
@@ -114,10 +116,41 @@ function afficher(a: Analyse, erreur: string | null) {
     const attenteAero = e.ref.gauge ? ` · AERO ${F.nombre(lisible(e.aeroEnAttente, 18))} (${F.dollars(a.aeroEnAttenteUsd)})` : ''
     console.log(`  En attente     fees ${F.dollars(a.feesEnAttenteUsd)}${attenteAero}`)
   }
+  if (avecAvance) afficherAvance(a)
   const stake = h.periodesStakees.length
     ? ` · ${h.periodesStakees.length} période(s) stakée(s)${h.penalites > 0n ? `, pénalités ${F.nombre(lisible(h.penalites, 18))} AERO` : ''}`
     : ''
   console.log(`  Journal        ${h.requetes} requête(s), ${h.secondes.toFixed(1)} s · ${h.reclamations.length} retrait(s) de fees${stake}`)
+}
+
+/** Les mêmes chiffres que l'onglet « Avancé » de la page, pour les vérifier hors navigateur. */
+function afficherAvance(a: Analyse) {
+  const m = metriquesAvancees(a)
+  if (!m) return
+  const e = a.etat
+  const s0 = e.jeton0.symbole
+  const s1 = e.jeton1.symbole
+  console.log(`  ── Avancé`)
+  console.log(
+    `     Résultat     net ${F.dollars(m.pnlUsd, true)} (ROI ${F.pourcent(m.roiPourcent, true)}) · actifs ${F.dollars(m.gainActifsUsd, true)}` +
+      ` · capital moyen ${F.dollars(m.capitalMoyenUsd)} · sorti ${F.dollars(m.sortiUsd)} · reste ${F.dollars(m.resteUsd)}`,
+  )
+  console.log(
+    `     HODL         si gardés ${F.dollars(m.hodlUsd)} · écart ${F.dollars(m.ecartHodlUsd, true)} · divergence ${F.dollars(m.divergenceUsd, true)}` +
+      ` · rétention ${F.pourcent(m.retentionPourcent, true)} · vs tout en ${s0} ${F.pourcent(m.vsTout0Pourcent, true)} · vs tout en ${s1} ${F.pourcent(m.vsTout1Pourcent, true)}`,
+  )
+  console.log(
+    `     Fees         ${F.dollars(m.feesTotalUsd)} dont ${F.dollars(m.feesEncaisseesUsd)} encaissées (${F.pourcent(m.partEncaisseePourcent)})` +
+      ` · ${F.dollars(m.feesParJourUsd)} par jour · rythme récent ${F.pourcent(m.aprRecentPourcent)} par an`,
+  )
+  console.log(
+    `     Prix         entrée ${s0} ${F.dollars(m.entree0)} (${F.pourcent(m.variation0Pourcent, true)} depuis) · ${s1} ${F.dollars(m.entree1)} (${F.pourcent(m.variation1Pourcent, true)} depuis)` +
+      ` · sortie ${s0} ${F.dollars(m.sortie0)} · ${s1} ${F.dollars(m.sortie1)}`,
+  )
+  console.log(
+    `     Pool         largeur ${F.pourcent(m.largeurPourcent)} · répartition ${F.pourcent(m.partJeton0Pourcent)} ${s0}` +
+      ` · TVL ${F.dollars(m.tvlPoolUsd)} · part active ${F.taux(m.partLiquiditePourcent)} · frais ${F.taux(m.fraisPoolPourcent)}`,
+  )
 }
 
 if (inventaire.positions.length) {

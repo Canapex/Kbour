@@ -43,6 +43,18 @@ export interface Analyse {
   /** 4. Projection annuelle, sur le capital moyen engagé depuis l'ouverture. */
   aprPourcent: number | null
   jours: number | null
+  /** Capital réellement engagé, pondéré par le temps : la base du calcul ci-dessus. */
+  capitalMoyenUsd: number | null
+  /** Chaque dépôt et retrait de capital valorisé au prix de sa date (repli sur le prix du jour). */
+  mouvementsUsd: {
+    type: 'depot' | 'retrait'
+    horodatage: number
+    quantite0: number
+    quantite1: number
+    usd0: number | null
+    usd1: number | null
+    usd: number | null
+  }[]
   /**
    * 5. Face au HODL : avance actuelle, et zone de prix (jeton0 en jeton1) où la position bat le HODL.
    * Si elle est en avance, c'est la zone qui contient le prix actuel ; sinon la plus proche.
@@ -100,6 +112,8 @@ export function analyser(
     feesRetireesUsd: null,
     aprPourcent: null,
     jours: null,
+    capitalMoyenUsd: null,
+    mouvementsUsd: [],
     avanceSurHodlUsd: null,
     breakEven: { enAvance: false, bas: null, haut: null, existe: false },
   }
@@ -123,6 +137,15 @@ export function analyser(
       analyse.retireUsd = analyse.retireUsd !== null && usd !== null ? analyse.retireUsd + usd : null
       analyse.cloture = { horodatage: m.horodatage, prix: m.prix }
     }
+    analyse.mouvementsUsd.push({
+      type: m.type,
+      horodatage: m.horodatage,
+      quantite0: m.quantite0,
+      quantite1: m.quantite1,
+      usd0: u0,
+      usd1: u1,
+      usd,
+    })
     if (usd !== null) flux.push({ horodatage: m.horodatage, usd: m.type === 'depot' ? usd : -usd })
   }
   analyse.investiUsd = investi
@@ -170,7 +193,7 @@ export function analyser(
   const finDeVie = analyse.fermee && analyse.cloture ? analyse.cloture.horodatage : etat.horodatage
   const secondes = finDeVie - historique.ouverture.horodatage
   analyse.jours = secondes / 86_400
-  if (analyse.rendementUsd !== null && flux.length && secondes > 3_600) {
+  if (flux.length && secondes > 3_600) {
     flux.sort((a, b) => a.horodatage - b.horodatage)
     let capital = 0
     let integrale = 0
@@ -180,7 +203,10 @@ export function analyser(
       integrale += Math.max(capital, 0) * (fin - flux[i].horodatage)
     }
     const capitalMoyen = integrale / secondes
-    if (capitalMoyen > 0) analyse.aprPourcent = (analyse.rendementUsd / capitalMoyen) * (365 * 86_400 / secondes) * 100
+    analyse.capitalMoyenUsd = capitalMoyen
+    if (capitalMoyen > 0 && analyse.rendementUsd !== null) {
+      analyse.aprPourcent = (analyse.rendementUsd / capitalMoyen) * (365 * 86_400 / secondes) * 100
+    }
   }
 
   // 5. Face au HODL, dans l'unité du jeton1 ; les AERO sont convertis aux prix du jour.

@@ -54,4 +54,11 @@ export interface EtatPosition {
   croissanceFees0: bigint
   croissanceFees1: bigint
   croissanceAero: bigint
+  /** Liquidité active du pool au tick courant : de quoi situer la position dans le pool. */
+  liquiditeActive: bigint | null
+  /** Frais du pool en millionièmes (3 000 = 0,30 %) ; null si le pool ne l'expose pas. */
+  fraisPool: number | null
+  /** Réserves du pool, unités lisibles : de quoi donner sa TVL. */
+  reserve0: number | null
+  reserve1: number | null
 }

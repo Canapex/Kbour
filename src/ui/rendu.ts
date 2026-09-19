@@ -1,4 +1,5 @@
 import type { Analyse } from '../moteur/analyse'
+import { metriquesAvancees } from '../moteur/avance'
 import { CHAINES } from '../moteur/chaines'
 import { lisible } from '../moteur/maths'
 import type { EtatPosition } from '../moteur/types'
@@ -194,6 +195,222 @@ function details(a: Analyse): Fragment {
   `
 }
 
+/** Une mesure de l'onglet avancé : ce qu'elle vaut, et en une ligne ce qu'elle veut dire. */
+function mesure(titre: string, valeur: Fragment | string, note: string): Fragment {
+  return html`
+    <div class="mesure">
+      <div class="mesure-titre">${titre}</div>
+      <div class="mesure-valeur">${valeur}</div>
+      <div class="mesure-note">${note}</div>
+    </div>
+  `
+}
+
+const colorer = (v: number | null, texte: string): Fragment =>
+  html`<span class="${v === null ? '' : v >= 0 ? 'vert' : 'rouge'}">${texte}</span>`
+
+const groupe = (titre: string, mesures: Fragment[]): Fragment =>
+  html`<section class="groupe">
+    <h3 class="groupe-titre">${titre}</h3>
+    <div class="mesures">${mesures}</div>
+  </section>`
+
+/** Onglet « Avancé » : tout ce que la photo et le journal permettent de déduire, sans une requête de plus. */
+function panneauAvance(a: Analyse, erreur: string | null): Fragment {
+  const m = metriquesAvancees(a)
+  const e = a.etat
+  const h = a.historique
+  const s0 = e.jeton0.symbole
+  const s1 = e.jeton1.symbole
+  const aero = e.ref.protocole === 'aerodrome'
+  const part0 = m.partJeton0Pourcent
+  const lienPool = `${CHAINES[e.ref.chaine].explorateur}/address/${e.pool}`
+
+  // Le pool se lit dans la photo : ce groupe s'affiche même quand le journal manque.
+  const pool = groupe('Pool et fourchette', [
+    mesure('Largeur de la fourchette', F.pourcent(m.largeurPourcent), 'Écart entre les deux bornes, rapporté à leur milieu.'),
+    mesure(
+      'Répartition actuelle',
+      part0 === null ? '—' : html`${F.pourcent(part0)} <small>${s0}</small> · ${F.pourcent(100 - part0)} <small>${s1}</small>`,
+      'Ce que vaut chaque jeton dans la position, au prix du jour.',
+    ),
+    mesure('TVL du pool', F.dollars(m.tvlPoolUsd), 'Ce que le contrat du pool détient, toutes fourchettes confondues.'),
+    mesure(
+      'Part de la liquidité active',
+      F.taux(m.partLiquiditePourcent),
+      e.dansLaFourchette
+        ? 'La fraction des fees du pool qui te revient au prix actuel.'
+        : 'Hors fourchette : la position ne touche rien pour l’instant.',
+    ),
+    mesure(
+      'Frais du pool',
+      F.taux(m.fraisPoolPourcent),
+      aero
+        ? `Prélevés sur chaque swap · espacement des ticks ${e.feeOuEspacement}.`
+        : 'Prélevés par le pool sur chaque swap, quel que soit le prix.',
+    ),
+    mesure(
+      'Pool',
+      html`<a href="${lienPool}" target="_blank" rel="noopener noreferrer">${e.pool.slice(0, 8)}…${e.pool.slice(-6)}</a>`,
+      `${s0} / ${s1} sur ${CHAINES[e.ref.chaine].nom}.`,
+    ),
+  ])
+
+  if (!h) {
+    return html`
+      <div class="avance">
+        <div class="tuiles-attente">
+          ${erreur ? `Historique indisponible : ${erreur}` : 'Lecture du journal de la position…'}
+        </div>
+        ${pool}
+      </div>
+    `
+  }
+  return html`
+    <div class="avance">
+      ${groupe('Résultat', [
+        mesure(
+          'Résultat net',
+          colorer(m.pnlUsd, F.dollars(m.pnlUsd, true)),
+          'Ce qui est sorti plus ce qui reste, moins ce qui a été déposé.',
+        ),
+        mesure(
+          'Retour sur investissement',
+          colorer(m.roiPourcent, F.pourcent(m.roiPourcent, true)),
+          'Le résultat net rapporté au montant investi.',
+        ),
+        mesure(
+          'Gain sur les actifs',
+          colorer(m.gainActifsUsd, F.dollars(m.gainActifsUsd, true)),
+          'Le résultat net sans les fees : la part due au prix des jetons.',
+        ),
+        mesure(
+          'Capital moyen engagé',
+          F.dollars(m.capitalMoyenUsd),
+          'Moyenne pondérée par le temps ; c’est la base du rendement annualisé.',
+        ),
+        mesure('Total sorti', F.dollars(m.sortiUsd), 'Capital retiré et fees encaissées, chacun au prix de sa date.'),
+        mesure('Reste en position', F.dollars(m.resteUsd), 'Valeur actuelle plus ce qui n’a pas encore été réclamé.'),
+      ])}
+      ${groupe('Face au HODL', [
+        mesure('Valeur si j’avais gardé', F.dollars(m.hodlUsd), `Les jetons déposés, au prix d’aujourd’hui.`),
+        mesure(
+          a.fermee ? 'Écart à la fermeture' : 'Écart vs HODL',
+          colorer(m.ecartHodlUsd, F.dollars(m.ecartHodlUsd, true)),
+          a.fermee ? 'Au prix du jour où la position a été vidée.' : 'La position, fees comprises, moins le HODL.',
+        ),
+        mesure(
+          'Perte de divergence',
+          colorer(m.divergenceUsd, F.dollars(m.divergenceUsd, true)),
+          'Ce que le rééquilibrage du pool coûte, fees mises à part.',
+        ),
+        mesure(
+          'Rétention des fees',
+          colorer(m.retentionPourcent, F.pourcent(m.retentionPourcent, true)),
+          'Part des fees qui reste une fois la divergence payée.',
+        ),
+        mesure(
+          `vs tout en ${s0}`,
+          colorer(m.vsTout0Pourcent, F.pourcent(m.vsTout0Pourcent, true)),
+          `Écart avec un wallet qui aurait tout mis en ${s0} à l’entrée.`,
+        ),
+        mesure(
+          `vs tout en ${s1}`,
+          colorer(m.vsTout1Pourcent, F.pourcent(m.vsTout1Pourcent, true)),
+          `Écart avec un wallet qui aurait tout mis en ${s1} à l’entrée.`,
+        ),
+      ])}
+      ${groupe('Fees', [
+        mesure(
+          'Fees générées',
+          F.dollars(m.feesTotalUsd),
+          `${F.nombre(a.fees0)} ${s0} + ${F.nombre(a.fees1)} ${s1}${aero ? ` + ${F.nombre(a.aero)} AERO` : ''}`,
+        ),
+        mesure(
+          'Encaissées',
+          F.dollars(m.feesEncaisseesUsd),
+          `${F.pourcent(m.partEncaisseePourcent)} du total, en ${h.reclamations.length} retrait${h.reclamations.length > 1 ? 's' : ''}.`,
+        ),
+        mesure('En attente', F.dollars(m.feesAttenteUsd), 'Réclamable maintenant, sans fermer la position.'),
+        mesure('Fees par jour', F.dollars(m.feesParJourUsd), `Moyenne sur ${F.duree(a.jours)} de vie.`),
+        mesure(
+          'Rythme récent',
+          html`${F.pourcent(m.aprRecentPourcent)} <small>/ an</small>`,
+          a.fermee
+            ? 'La position est fermée : plus rien ne s’y accumule.'
+            : m.joursDepuisFees !== null
+              ? `Les fees accumulées depuis le dernier retrait, il y a ${F.duree(m.joursDepuisFees)}.`
+              : 'Les fees accumulées depuis l’ouverture, annualisées.',
+        ),
+        aero
+          ? mesure(
+              'AERO réclamés',
+              html`${F.nombre(m.aeroReclames)} <small>(${F.dollars(m.aeroReclamesUsd)})</small>`,
+              h.penalites > 0n
+                ? `Pénalités de sortie anticipée déduites : ${F.nombre(lisible(h.penalites, 18))} AERO.`
+                : 'Récompenses du gauge déjà sorties du contrat.',
+            )
+          : mesure('Récompenses', '—', 'Ce protocole ne distribue que les fees du pool.'),
+      ])}
+      ${groupe('Prix', [
+        mesure(
+          `Entrée moyenne ${s0}`,
+          F.dollars(m.entree0),
+          `Aujourd’hui ${F.dollars(a.usd0)} (${F.pourcent(m.variation0Pourcent, true)}).`,
+        ),
+        mesure(
+          `Entrée moyenne ${s1}`,
+          F.dollars(m.entree1),
+          `Aujourd’hui ${F.dollars(a.usd1)} (${F.pourcent(m.variation1Pourcent, true)}).`,
+        ),
+        mesure(
+          `Sortie moyenne ${s0}`,
+          F.dollars(m.sortie0),
+          m.sortie0 === null ? 'Aucun retrait de capital pour l’instant.' : `Prix moyen des ${F.nombre(a.retire0)} ${s0} retirés.`,
+        ),
+        mesure(
+          `Sortie moyenne ${s1}`,
+          F.dollars(m.sortie1),
+          m.sortie1 === null ? 'Aucun retrait de capital pour l’instant.' : `Prix moyen des ${F.nombre(a.retire1)} ${s1} retirés.`,
+        ),
+      ])}
+      ${pool}
+      ${groupe('Chronologie', [
+        mesure(
+          'Ouverte le',
+          F.dateHeure(h.ouverture.horodatage),
+          a.fermee ? `${F.duree(a.jours)} de vie, jusqu’à la fermeture.` : `Il y a ${F.duree(a.jours)}.`,
+        ),
+        mesure(
+          a.fermee ? 'Fermée le' : 'Dernier mouvement',
+          m.fermeture !== null
+            ? F.dateHeure(m.fermeture)
+            : h.mouvements.length
+              ? F.dateHeure(h.mouvements[h.mouvements.length - 1].horodatage)
+              : '—',
+          a.fermee ? 'Dernier retrait de capital.' : 'Dernier dépôt ou retrait de capital.',
+        ),
+        mesure(
+          'Opérations',
+          String(m.operations),
+          `${h.mouvements.length} mouvement${h.mouvements.length > 1 ? 's' : ''} de capital, ${h.reclamations.length} retrait${h.reclamations.length > 1 ? 's' : ''} de fees.`,
+        ),
+        mesure(
+          'Périodes stakées',
+          String(h.periodesStakees.length),
+          aero ? 'Une position stakée gagne des AERO mais plus de fees.' : 'Ce protocole n’a pas de gauge.',
+        ),
+        mesure(
+          'Photo prise au bloc',
+          e.bloc.toString(),
+          `${F.dateHeure(e.horodatage)} · journal lu en ${h.requetes} requête${h.requetes > 1 ? 's' : ''}.`,
+        ),
+        mesure('Coût en gas', '—', 'Non lu : il faudrait le reçu de chacune des transactions.'),
+      ])}
+    </div>
+  `
+}
+
 export function carte(a: Analyse, erreur: string | null): Fragment {
   const e = a.etat
   const attenteAero = e.ref.gauge ? html` · AERO ${F.nombre(lisible(e.aeroEnAttente, 18))} <small>(${F.dollars(a.aeroEnAttenteUsd)})</small>` : ''
@@ -227,9 +444,28 @@ export function carte(a: Analyse, erreur: string | null): Fragment {
               <div class="valeur-detail">En attente : fees ${F.dollars(a.feesEnAttenteUsd)}${attenteAero}</div>
             </div>`}
       </div>
-      ${tuiles(a, erreur)}
-      ${details(a)}
+      ${onglets(a, erreur)}
     </article>
+  `
+}
+
+/**
+ * Les deux vues d'une position, en CSS pur : deux boutons radio cachés commandent l'affichage.
+ * Aucun script à rebrancher, donc une carte reste une simple chaîne de HTML.
+ */
+function onglets(a: Analyse, erreur: string | null): Fragment {
+  const nom = `vue-${a.etat.ref.chaine}-${a.etat.ref.id}`
+  return html`
+    <div class="onglets">
+      <input type="radio" class="onglet-radio" name="${nom}" id="${nom}-resume" checked />
+      <input type="radio" class="onglet-radio" name="${nom}" id="${nom}-avance" />
+      <nav class="barre-onglets">
+        <label for="${nom}-resume">Résumé</label>
+        <label for="${nom}-avance">Avancé</label>
+      </nav>
+      <div class="panneau">${tuiles(a, erreur)} ${details(a)}</div>
+      <div class="panneau">${panneauAvance(a, erreur)}</div>
+    </div>
   `
 }
 

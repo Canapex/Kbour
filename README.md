@@ -14,6 +14,13 @@ On entre une adresse de wallet, la page lit tout sur la chaîne et affiche, pour
 5. le **break-even face au HODL** : la zone de prix où la position bat le fait d'avoir simplement gardé ses jetons ;
 6. l'**alerte Telegram** (à venir).
 
+Les positions **fermées** se chargent à la demande, avec leur résultat au jour de leur fermeture.
+
+Chaque carte a un onglet **Avancé** : résultat net et ROI, gain dû au prix des jetons, capital moyen engagé,
+perte de divergence et rétention des fees, comparaison avec « tout en jeton A » ou « tout en jeton B »,
+prix d'entrée et de sortie moyens, rythme récent des fees, TVL du pool, part de la liquidité active,
+frais du pool et chronologie. Chaque mesure est définie sous sa valeur.
+
 ## Rien n'est enregistré
 
 Pas de base de données, pas de serveur, pas de cookie, pas de stockage dans le navigateur. Tout est relu à chaque analyse et disparaît à la fermeture de l'onglet. L'adresse analysée apparaît dans l'URL, après le `#`, qui n'est jamais envoyé à un serveur.
@@ -69,6 +76,7 @@ Les versions récentes de npm bloquent les scripts d'installation des dépendanc
 
 ```bash
 npm run rapport -- 0xAdresse     # les six chiffres, position par position
+npm run rapport -- 0xAdresse --fermees --avance   # y compris les positions fermées et l'onglet avancé
 npm run verifier -- 0xAdresse    # recoupe les fees et les AERO avec des sources indépendantes
 npm run diagnostic               # pourquoi l'historique est indisponible
 ```

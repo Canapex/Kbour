@@ -26,6 +26,8 @@ export interface Chaine {
   journal: PublicClient | null
   /** Préfixe DefiLlama pour les prix. */
   llama: string
+  /** Explorateur public, pour les liens vers le pool. */
+  explorateur: string
   multicallDepuis: bigint
   /**
    * Blocs de retrait sous le sommet pour la photo : les nœuds derrière un répartiteur
@@ -69,6 +71,7 @@ const construire = (): Record<IdChaine, Chaine> => ({
     archive: client(mainnet, [...alchemy('eth-mainnet'), 'https://eth.drpc.org']),
     journal: cle ? client(mainnet, alchemy('eth-mainnet')) : null,
     llama: 'ethereum',
+    explorateur: mainnet.blockExplorers.default.url,
     multicallDepuis: 14_353_601n,
     marge: 1n,
     limiterArchive: limiteur(8),
@@ -81,6 +84,7 @@ const construire = (): Record<IdChaine, Chaine> => ({
     archive: client(base, [...alchemy('base-mainnet'), 'https://base.drpc.org']),
     journal: cle ? client(base, alchemy('base-mainnet')) : null,
     llama: 'base',
+    explorateur: base.blockExplorers.default.url,
     multicallDepuis: 5_022n,
     marge: 2n,
     limiterArchive: limiteur(8),
@@ -94,6 +98,7 @@ const construire = (): Record<IdChaine, Chaine> => ({
     // Alchemy et le RPC public servent le journal sur toute la plage (mesuré le 17/09/2026).
     journal: client(robinhood, robinhoodUrls()),
     llama: 'robinhood',
+    explorateur: robinhood.blockExplorers?.default.url ?? '',
     multicallDepuis: 0n,
     marge: 30n,
     limiterArchive: limiteur(4),

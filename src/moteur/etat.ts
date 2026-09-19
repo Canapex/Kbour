@@ -11,11 +11,12 @@ import {
   abiPoolUniswap,
 } from './abis'
 import { CHAINES, MULTICALL3 } from './chaines'
-import { lireTout, valeur, type Appel } from './lecture'
+import { lireTout, valeur, type Appel, type Resultat } from './lecture'
 import {
   Q128,
   croissanceInterieure,
   gainEntre,
+  lisible,
   prixLisible,
   quantitesLisibles,
   racinePrixDuTick,
@@ -26,6 +27,12 @@ import type { EtatPosition, IdChaine, Jeton, RefPosition } from './types'
 type Tuple = readonly unknown[]
 
 const unique = <T>(xs: T[]): T[] => [...new Set(xs)]
+
+/** Solde lu dans la photo, en unités lisibles ; null si le jeton n'a pas répondu. */
+const solde = (r: Resultat | undefined, decimales: number): number | null => {
+  const brut = valeur<bigint>(r)
+  return brut === undefined ? null : lisible(brut, decimales)
+}
 
 /** Photographie de toutes les positions d'une chaîne, cohérente au bloc près. */
 async function etatsDeLaChaine(chaine: IdChaine, refs: RefPosition[], wallet: Address): Promise<EtatPosition[]> {
@@ -77,14 +84,22 @@ async function etatsDeLaChaine(chaine: IdChaine, refs: RefPosition[], wallet: Ad
 
   const poolsUniques = unique(pools)
   const protocoleDuPool = new Map(pools.map((p, i) => [p, definitions[i].ref.protocole]))
+  const jetonsDuPool = new Map(pools.map((p, i) => [p, [definitions[i].token0, definitions[i].token1] as const]))
   const lecturesPool = new Map(
     poolsUniques.map((pool) => {
       const aero = protocoleDuPool.get(pool) === 'aerodrome'
       const abi = aero ? abiPoolAerodrome : abiPoolUniswap
       const lire = (functionName: string) => ajouter({ address: pool, abi, functionName })
+      const [t0, t1] = jetonsDuPool.get(pool)!
+      // Pour l'onglet avancé : liquidité active, frais du pool et réserves (sa TVL).
+      const soldeDuPool = (jeton: Address) => ajouter({ address: jeton, abi: abiJeton, functionName: 'balanceOf', args: [pool] })
       return [
         pool,
         {
+          active: lire('liquidity'),
+          frais: lire('fee'),
+          solde0: soldeDuPool(t0),
+          solde1: soldeDuPool(t1),
           slot0: lire('slot0'),
           fg0: lire('feeGrowthGlobal0X128'),
           fg1: lire('feeGrowthGlobal1X128'),
@@ -226,6 +241,10 @@ async function etatsDeLaChaine(chaine: IdChaine, refs: RefPosition[], wallet: Ad
       croissanceFees0,
       croissanceFees1,
       croissanceAero,
+      liquiditeActive: valeur<bigint>(r[lpool.active]) ?? null,
+      fraisPool: r[lpool.frais].ok ? Number(valeur<number>(r[lpool.frais])) : null,
+      reserve0: solde(r[lpool.solde0], j0.decimales),
+      reserve1: solde(r[lpool.solde1], j1.decimales),
     }
   })
 }

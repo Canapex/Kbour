@@ -20,6 +20,8 @@ export const abiFactoryAerodrome = parseAbi([
 ])
 
 export const abiPoolUniswap = parseAbi([
+  'function liquidity() view returns (uint128)',
+  'function fee() view returns (uint24)',
   'function slot0() view returns (uint160 sqrtPriceX96, int24 tick, uint16 observationIndex, uint16 observationCardinality, uint16 observationCardinalityNext, uint8 feeProtocol, bool unlocked)',
   'function feeGrowthGlobal0X128() view returns (uint256)',
   'function feeGrowthGlobal1X128() view returns (uint256)',
@@ -28,6 +30,8 @@ export const abiPoolUniswap = parseAbi([
 
 /** Aerodrome Slipstream : slot0 sans feeProtocol, ticks avec stakedLiquidityNet et rewardGrowthOutside. */
 export const abiPoolAerodrome = parseAbi([
+  'function liquidity() view returns (uint128)',
+  'function fee() view returns (uint24)',
   'function slot0() view returns (uint160 sqrtPriceX96, int24 tick, uint16 observationIndex, uint16 observationCardinality, uint16 observationCardinalityNext, bool unlocked)',
   'function feeGrowthGlobal0X128() view returns (uint256)',
   'function feeGrowthGlobal1X128() view returns (uint256)',
@@ -57,6 +61,7 @@ export const abiVoter = parseAbi([
 ])
 
 export const abiJeton = parseAbi([
+  'function balanceOf(address compte) view returns (uint256)',
   'function symbol() view returns (string)',
   'function decimals() view returns (uint8)',
 ])
