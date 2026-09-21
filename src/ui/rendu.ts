@@ -285,7 +285,9 @@ function panneauAvance(a: Analyse, erreur: string | null): Fragment {
         mesure(
           'ROI annualisé',
           colorer(m.roiAnnualisePourcent, `${F.pourcent(m.roiAnnualisePourcent, true)} / an`),
-          'Le même rendement ramené à l’année, pour comparer des durées différentes.',
+          a.jours !== null && a.jours < 7
+            ? `Extrapolé à partir de ${F.duree(a.jours)} seulement : il bougera beaucoup.`
+            : 'Le même rendement ramené à l’année, pour comparer des durées différentes.',
         ),
         mesure(
           'Gain sur les actifs',
@@ -333,14 +335,16 @@ function panneauAvance(a: Analyse, erreur: string | null): Fragment {
         mesure(
           'Fees générées',
           F.dollars(m.feesTotalUsd),
-          `${F.nombre(a.fees0)} ${s0} + ${F.nombre(a.fees1)} ${s1}${aero ? ` + ${F.nombre(a.aero)} AERO` : ''}`,
+          `${F.nombre(a.fees0)} ${s0} + ${F.nombre(a.fees1)} ${s1}${a.aero > 0 ? ` + ${F.nombre(a.aero)} AERO` : ''}`,
         ),
         mesure(`Fees en ${s0}`, F.dollars(m.fees0Usd), `${F.nombre(a.fees0)} ${s0}, au prix du jour.`),
         mesure(`Fees en ${s1}`, F.dollars(m.fees1Usd), `${F.nombre(a.fees1)} ${s1}, au prix du jour.`),
         mesure(
           'Encaissées',
           F.dollars(m.feesEncaisseesUsd),
-          `${F.pourcent(m.partEncaisseePourcent)} du total, en ${h.reclamations.length} retrait${h.reclamations.length > 1 ? 's' : ''}.`,
+          h.reclamations.length
+            ? `${F.pourcent(m.partEncaisseePourcent)} du total, en ${h.reclamations.length} retrait${h.reclamations.length > 1 ? 's' : ''}.`
+            : 'Aucun retrait de fees pour l’instant.',
         ),
         mesure('En attente', F.dollars(m.feesAttenteUsd), 'Réclamable maintenant, sans fermer la position.'),
         mesure('Fees par jour', F.dollarsFins(m.feesParJourUsd), `Moyenne sur ${F.duree(a.jours)} de vie.`),
@@ -353,7 +357,9 @@ function panneauAvance(a: Analyse, erreur: string | null): Fragment {
               ? `Les fees accumulées depuis le dernier retrait, il y a ${F.duree(m.joursDepuisFees)}.`
               : 'Les fees accumulées depuis l’ouverture, annualisées.',
         ),
-        aero
+        aero && !h.periodesStakees.length
+          ? mesure('AERO', '—', 'Jamais stakée : la position gagne des fees, pas d’AERO.')
+          : aero
           ? mesure(
               'AERO réclamés',
               html`${F.nombre(m.aeroReclames)} <small>(${F.dollars(m.aeroReclamesUsd)})</small>`,
@@ -365,7 +371,7 @@ function panneauAvance(a: Analyse, erreur: string | null): Fragment {
         mesure(
           'Coût en gas',
           F.dollarsFins(m.gazUsd),
-          `${m.transactions} transaction${m.transactions > 1 ? 's' : ''}, chacune au prix de l’ETH de sa date` +
+          `${m.transactions} transaction${m.transactions > 1 ? 's, chacune' : ','} au prix de l’ETH de sa date` +
             `${h.gazConnu ? '.' : ' (un reçu illisible : total sous-estimé).'}`,
         ),
         mesure(

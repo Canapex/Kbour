@@ -243,7 +243,11 @@ export function analyser(
     aeroEnJeton1: usdAero !== null && usd1 ? (analyse.aero * usdAero) / usd1 : 0,
   }
   const avance = avanceSurHodl(comparaison, etat.prix)
-  analyse.avanceSurHodlUsd = usd1 !== null ? avance * usd1 : null
+  // En dollars, avec les mêmes prix que la valeur et les fees de la carte : au prix du pool, l'écart
+  // tombait à quelques centimes ou dollars de « position moins HODL » lu dans les autres cases.
+  const avecLp = enUsd(etat.quantite0 + analyse.retire0 + analyse.fees0, etat.quantite1 + analyse.retire1 + analyse.fees1)
+  const hodl = enUsd(analyse.depose0, analyse.depose1)
+  analyse.avanceSurHodlUsd = avecLp !== null && hodl !== null ? avecLp + (aeroUsd ?? 0) - hodl : null
   analyse.breakEven = zoneGagnante(comparaison, etat.prix, avance >= 0)
 
   // Pour une position fermée, le résultat qui compte est celui du jour de la fermeture.

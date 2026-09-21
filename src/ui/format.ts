@@ -34,8 +34,8 @@ export function pourcent(v: number | null, signe = false): string {
 export function dollarsFins(v: number | null): string {
   if (v === null || !Number.isFinite(v)) return '—'
   if (v === 0 || Math.abs(v) >= 1) return dollars(v)
-  const decimales = Math.min(8, Math.max(3, -Math.floor(Math.log10(Math.abs(v))) + 2))
-  return `${v < 0 ? '−' : ''}${fr(0, decimales).format(Math.abs(v))} $`
+  const decimales = Math.min(8, Math.max(4, -Math.floor(Math.log10(Math.abs(v))) + 3))
+  return `${v < 0 ? '−' : ''}${fr(2, decimales).format(Math.abs(v))} $`
 }
 
 /** Taux fin : les frais d'un pool ou une part de liquidité se jouent sous le dixième de pourcent. */
