@@ -135,6 +135,8 @@ export const MULTICALL3: Address = '0xcA11bde05977b3631167028862bE2a173976CA11'
 /** Uniswap v3 : même contrat NFT partout, adresses différentes par chaîne (docs Uniswap, vérifiées on-chain). */
 export const UNISWAP_V3: { chaine: IdChaine; gestionnaire: Address; creation: bigint }[] = [
   { chaine: 'ethereum', gestionnaire: '0xC36442b4a4522E871399CD717aBDD847Ab11FE88', creation: 12_369_651n },
+  // Base : bloc de création mesuré le 21/09/2026 (getCode), factory 0x3312…6FDfD.
+  { chaine: 'base', gestionnaire: '0x03a520b32C04BF3bEEf7BEb72E919cf822Ed34f1', creation: 1_371_714n },
   { chaine: 'robinhood', gestionnaire: '0x73991a25c818bf1f1128deaab1492d45638de0d3', creation: 0n },
 ]
 

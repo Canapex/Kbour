@@ -1,5 +1,6 @@
 import type { Address } from 'viem'
 import { CHAINES } from './chaines'
+import { limiteur } from './lecture'
 import type { IdChaine } from './types'
 
 // Seule dépendance hors chaîne : la conversion en dollars (DefiLlama, gratuit, sans clé).
@@ -12,11 +13,26 @@ export const cleDePrix = (chaine: IdChaine, adresse: Address): string => `${CHAI
 /** Le jeton qui paie le gas : de l'ETH sur les trois chaînes (Base et Robinhood sont des rollups Ethereum). */
 export const CLE_GAZ = 'coingecko:ethereum'
 
+// DefiLlama coupe au-delà de quelques requêtes simultanées (429). Un prix passé manquant retomberait
+// en silence sur le prix du jour : file d'attente, et nouvelles tentatives espacées.
+const limiter = limiteur(3)
+async function obtenir(url: string): Promise<Response> {
+  for (let essai = 0; ; essai++) {
+    try {
+      const reponse = await limiter(() => fetch(url))
+      if (reponse.ok || essai >= 3 || (reponse.status !== 429 && reponse.status < 500)) return reponse
+    } catch (e) {
+      if (essai >= 3) throw e
+    }
+    await new Promise((reprendre) => setTimeout(reprendre, 1_500 * (essai + 1)))
+  }
+}
+
 async function interroger(chemin: string, cles: string[]): Promise<Prix> {
   const prix: Prix = new Map()
   const uniques = [...new Set(cles)]
   for (let i = 0; i < uniques.length; i += 50) {
-    const reponse = await fetch(`https://coins.llama.fi/prices/${chemin}/${uniques.slice(i, i + 50).join(',')}`)
+    const reponse = await obtenir(`https://coins.llama.fi/prices/${chemin}/${uniques.slice(i, i + 50).join(',')}`)
     if (!reponse.ok) throw new Error(`DefiLlama : HTTP ${reponse.status}`)
     const corps = (await reponse.json()) as { coins: Record<string, { price: number }> }
     for (const [cle, info] of Object.entries(corps.coins)) prix.set(cle.toLowerCase(), info.price)
@@ -43,7 +59,7 @@ export async function prixHistoriquesGroupes(cles: string[], horodatages: number
   for (let i = 0; i < dates.length; i += 40) {
     const paquet = dates.slice(i, i + 40)
     const demande = Object.fromEntries(jetons.map((cle) => [cle, paquet]))
-    const reponse = await fetch(
+    const reponse = await obtenir(
       `https://coins.llama.fi/batchHistorical?coins=${encodeURIComponent(JSON.stringify(demande))}&searchWidth=${FENETRE}`,
     )
     if (!reponse.ok) throw new Error(`DefiLlama : HTTP ${reponse.status}`)

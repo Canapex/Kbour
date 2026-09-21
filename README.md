@@ -2,7 +2,7 @@
 
 Suivre ses positions de liquidité **sans Krystal**, directement sur la chaîne.
 
-- **Uniswap v3** sur Ethereum et sur Robinhood Chain
+- **Uniswap v3** sur Ethereum, Base et Robinhood Chain
 - **Aerodrome (Slipstream)** sur Base, positions stakées comprises
 
 On entre une adresse de wallet, la page lit tout sur la chaîne et affiche, pour chaque position :
