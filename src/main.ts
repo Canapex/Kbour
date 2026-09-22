@@ -15,7 +15,7 @@ import { CLE_GAZ, cleDePrix, prixActuels, prixHistoriquesGroupes, type Prix } fr
 import type { RefPosition } from './moteur/types'
 import { secondes } from './ui/format'
 import { html, poser } from './ui/html'
-import { classeurXml, nomDuFichier } from './ui/export'
+import { classeurXlsx, nomDuFichier } from './ui/export'
 import { carte, resume } from './ui/rendu'
 
 const formulaire = document.querySelector<HTMLFormElement>('#formulaire')!
@@ -52,19 +52,20 @@ function majExport() {
   if (!affichees || !n) return
   const manquantes = affichees.fermeesAuTotal - affichees.fermees.length
   noteExport.textContent =
-    `${n} position${n > 1 ? 's' : ''}, avec ${n > 1 ? 'leurs' : 'ses'} mouvements et retraits de fees, lisible dans Excel ou LibreOffice.` +
+    `${n} position${n > 1 ? 's' : ''}, avec ${n > 1 ? 'leurs' : 'ses'} mouvements et retraits de fees, lisible dans Excel, LibreOffice, OpenOffice ou Google Sheets.` +
     (manquantes > 0 ? ` Les ${manquantes} fermées n'y sont que si tu les charges avant.` : '')
 }
 
 boutonExport.addEventListener('click', () => {
   if (!affichees) return
-  const xml = classeurXml(
+  const classeur = classeurXlsx(
     [...affichees.ouvertes, ...affichees.fermees],
     affichees.wallet,
     affichees.fermeesAuTotal - affichees.fermees.length,
   )
   const lien = document.createElement('a')
-  lien.href = URL.createObjectURL(new Blob([xml], { type: 'application/xml' }))
+  const type = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+  lien.href = URL.createObjectURL(new Blob([new Uint8Array(classeur)], { type }))
   lien.download = nomDuFichier(affichees.wallet)
   lien.click()
   setTimeout(() => URL.revokeObjectURL(lien.href), 60_000)

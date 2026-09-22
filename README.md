@@ -26,9 +26,9 @@ jeton, rythme récent, **coût en gas** (frais L1 des rollups compris) et part d
 pool, part du pool, part de la liquidité active, frais du pool, chronologie. Chaque mesure est définie sous
 sa valeur.
 
-Un bouton **Exporter en XML** télécharge les positions affichées dans un classeur (format « XML Spreadsheet »,
-qu’Excel et LibreOffice ouvrent directement) : un onglet de résumé, puis les positions, leurs mouvements,
-leurs retraits de fees et leurs périodes stakées. Le fichier est construit dans le navigateur, rien ne part ailleurs.
+Un bouton **Exporter en Excel** télécharge les positions affichées dans un classeur .xlsx, que lisent Excel,
+LibreOffice, OpenOffice et Google Sheets : un onglet de résumé, puis les positions, leurs mouvements, leurs retraits
+de fees et leurs périodes stakées. Le fichier est construit dans le navigateur, rien ne part ailleurs.
 
 ## Rien n'est enregistré
 
