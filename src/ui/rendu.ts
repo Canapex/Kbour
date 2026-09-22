@@ -313,7 +313,9 @@ function panneauAvance(a: Analyse, erreur: string | null): Fragment {
         mesure(
           'Perte de divergence',
           colorer(m.divergenceUsd, F.dollars(m.divergenceUsd, true)),
-          'Ce que le rééquilibrage du pool coûte, fees mises à part.',
+          a.fermee
+            ? 'L’impermanent loss au jour où la position a été vidée, fees mises à part.'
+            : 'Ce que le rééquilibrage du pool coûte, fees mises à part.',
         ),
         mesure(
           'Rétention des fees',
@@ -524,12 +526,11 @@ export function resume(analyses: Analyse[]): Fragment {
   const entre = m((x) => x.entreUsd)
   const roi = pnl !== null && entre ? (pnl / entre) * 100 : null
   const attente = m((x) => x.feesAttenteUsd)
-  // APR d'ensemble : chaque position pèse le capital qu'elle a réellement immobilisé.
-  const poids = somme((a) => a.capitalMoyenUsd)
-  const aprPondere =
-    poids !== null && poids > 0
-      ? somme((a) => (a.aprPourcent === null || a.capitalMoyenUsd === null ? null : a.aprPourcent * a.capitalMoyenUsd))
-      : null
+  // APR d'ensemble : chaque position pèse le capital qu'elle a réellement immobilisé. Une position
+  // trop jeune pour avoir un APR est laissée de côté au lieu d'effacer celui de toutes les autres.
+  const ponderables = analyses.filter((a) => a.aprPourcent !== null && (a.capitalMoyenUsd ?? 0) > 0)
+  const poids = ponderables.reduce((s, a) => s + a.capitalMoyenUsd!, 0)
+  const aprPondere = poids > 0 ? ponderables.reduce((s, a) => s + a.aprPourcent! * a.capitalMoyenUsd!, 0) / poids : null
   const dansFourchette = analyses.filter((a) => a.etat.dansLaFourchette).length
   const bloc = (titre: string, valeur: Fragment | string, note = '') =>
     html`<div class="resume-bloc">
@@ -559,7 +560,7 @@ export function resume(analyses: Analyse[]): Fragment {
     )}
     ${bloc(
       'Rendement annualisé',
-      `${F.pourcent(aprPondere !== null && poids ? aprPondere / poids : null)} / an`,
+      `${F.pourcent(aprPondere)} / an`,
       'pondéré par le capital engagé',
     )}
     ${bloc('Dans la fourchette', `${dansFourchette} / ${analyses.length}`, 'positions au travail')}

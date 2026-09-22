@@ -118,6 +118,14 @@ export function metriquesAvancees(a: Analyse): Avance {
   const joursDepuisFees = dernierRetrait === null ? 0 : (e.horodatage - dernierRetrait) / 86_400
   const valeurVive = a.valeurUsd && a.valeurUsd > 0 ? a.valeurUsd : null
 
+  // Position fermée : l'IL se mesure le jour où elle a été vidée — le capital retiré, face aux jetons
+  // déposés valorisés à ce même jour —, pas aux prix d'aujourd'hui.
+  const derniereSortie = [...a.mouvementsUsd].reverse().find((mv) => mv.type === 'retrait')
+  const ilCloture =
+    a.fermee && derniereSortie && derniereSortie.usd0 !== null && derniereSortie.usd1 !== null && a.retireUsd !== null
+      ? a.retireUsd - (a.depose0 * derniereSortie.usd0 + a.depose1 * derniereSortie.usd1)
+      : null
+
   const [bas, haut] = [e.prixBas, e.prixHaut].sort((x, y) => x - y)
   const valeur0Usd = a.usd0 !== null ? e.quantite0 * a.usd0 : null
   const valeur1Usd = a.usd1 !== null ? e.quantite1 * a.usd1 : null
@@ -143,8 +151,14 @@ export function metriquesAvancees(a: Analyse): Avance {
 
     hodlUsd: h && a.usd0 !== null && a.usd1 !== null ? a.depose0 * a.usd0 + a.depose1 * a.usd1 : null,
     ecartHodlUsd: a.fermee ? a.avanceClotureUsd : a.avanceSurHodlUsd,
-    divergenceUsd: moins(a.avanceSurHodlUsd, a.rendementUsd),
-    retentionPourcent: a.rendementUsd && a.rendementUsd > 0 ? part(a.avanceSurHodlUsd, a.rendementUsd) : null,
+    divergenceUsd: a.fermee ? ilCloture : moins(a.avanceSurHodlUsd, a.rendementUsd),
+    retentionPourcent: a.fermee
+      ? feesTotalUsd && feesTotalUsd > 0 && ilCloture !== null
+        ? ((feesTotalUsd + ilCloture) / feesTotalUsd) * 100
+        : null
+      : a.rendementUsd && a.rendementUsd > 0
+        ? part(a.avanceSurHodlUsd, a.rendementUsd)
+        : null,
     vsTout0Pourcent: moins(roiPourcent, variation0Pourcent),
     vsTout1Pourcent: moins(roiPourcent, variation1Pourcent),
 

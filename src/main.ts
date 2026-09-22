@@ -15,6 +15,7 @@ import { CLE_GAZ, cleDePrix, prixActuels, prixHistoriquesGroupes, type Prix } fr
 import type { RefPosition } from './moteur/types'
 import { secondes } from './ui/format'
 import { html, poser } from './ui/html'
+import { classeurXml, nomDuFichier } from './ui/export'
 import { carte, resume } from './ui/rendu'
 
 const formulaire = document.querySelector<HTMLFormElement>('#formulaire')!
@@ -38,6 +39,36 @@ boutonAutreCle.addEventListener('click', () => {
 })
 
 let analyseEnCours = 0
+
+// Export : les positions déjà analysées, gardées en mémoire le temps de la visite, jamais enregistrées.
+const zoneExport = document.querySelector<HTMLElement>('#export')!
+const boutonExport = document.querySelector<HTMLButtonElement>('#exporter')!
+const noteExport = document.querySelector<HTMLElement>('#export-note')!
+let affichees: { wallet: Address; ouvertes: Analyse[]; fermees: Analyse[]; fermeesAuTotal: number } | null = null
+
+function majExport() {
+  const n = affichees ? affichees.ouvertes.length + affichees.fermees.length : 0
+  zoneExport.hidden = n === 0
+  if (!affichees || !n) return
+  const manquantes = affichees.fermeesAuTotal - affichees.fermees.length
+  noteExport.textContent =
+    `${n} position${n > 1 ? 's' : ''}, avec ${n > 1 ? 'leurs' : 'ses'} mouvements et retraits de fees, lisible dans Excel ou LibreOffice.` +
+    (manquantes > 0 ? ` Les ${manquantes} fermées n'y sont que si tu les charges avant.` : '')
+}
+
+boutonExport.addEventListener('click', () => {
+  if (!affichees) return
+  const xml = classeurXml(
+    [...affichees.ouvertes, ...affichees.fermees],
+    affichees.wallet,
+    affichees.fermeesAuTotal - affichees.fermees.length,
+  )
+  const lien = document.createElement('a')
+  lien.href = URL.createObjectURL(new Blob([xml], { type: 'application/xml' }))
+  lien.download = nomDuFichier(affichees.wallet)
+  lien.click()
+  setTimeout(() => URL.revokeObjectURL(lien.href), 60_000)
+})
 
 function dire(texte: string, erreur = false) {
   statut.textContent = texte
@@ -84,7 +115,7 @@ async function analyserLot(
 }
 
 /** Les positions vidées ne sont lues que si on les demande : leur histoire coûte quelques requêtes chacune. */
-function proposerFermees(refs: RefPosition[], wallet: Address, abandonnee: () => boolean) {
+function proposerFermees(refs: RefPosition[], wallet: Address, abandonnee: () => boolean, courant: NonNullable<typeof affichees>) {
   if (!refs.length) return
   const pluriel = refs.length > 1 ? 's' : ''
   poser(
@@ -102,7 +133,11 @@ function proposerFermees(refs: RefPosition[], wallet: Address, abandonnee: () =>
     bouton.disabled = true
     bouton.textContent = 'Lecture de leur histoire…'
     try {
-      await analyserLot(refs, wallet, liste, abandonnee)
+      const lot = await analyserLot(refs, wallet, liste, abandonnee)
+      if (!abandonnee()) {
+        courant.fermees = lot
+        majExport()
+      }
       bouton.remove()
     } catch (e) {
       bouton.disabled = false
@@ -118,10 +153,14 @@ async function analyserWallet(wallet: Address) {
   poser(zoneResume, html``)
   poser(zonePositions, html``)
   poser(zoneFermees, html``)
+  affichees = null
+  majExport()
   dire('Recherche des positions du wallet…')
 
   const inventaire = await listerPositions(wallet)
   if (abandonnee()) return
+  const courant = { wallet, ouvertes: [] as Analyse[], fermees: [] as Analyse[], fermeesAuTotal: inventaire.fermees.length }
+  affichees = courant
   if (!inventaire.positions.length && !inventaire.fermees.length) {
     dire(
       inventaire.erreurs.length ? `Lecture impossible : ${inventaire.erreurs.join(' ; ')}` : 'Aucune position trouvée pour ce wallet.',
@@ -136,11 +175,13 @@ async function analyserWallet(wallet: Address) {
     const analyses = await analyserLot(inventaire.positions, wallet, zonePositions, abandonnee)
     if (abandonnee()) return
     poser(zoneResume, resume(analyses))
+    courant.ouvertes = analyses
   } else {
     poser(zonePositions, html`<p class="statut">Aucune position ouverte pour ce wallet.</p>`)
   }
 
-  proposerFermees(inventaire.fermees, wallet, abandonnee)
+  proposerFermees(inventaire.fermees, wallet, abandonnee, courant)
+  majExport()
   const erreurs = inventaire.erreurs.length ? ` · ${inventaire.erreurs.join(' ; ')}` : ''
   dire(`Analyse terminée en ${secondes((Date.now() - chrono) / 1000)}${erreurs}`, inventaire.erreurs.length > 0)
 }
