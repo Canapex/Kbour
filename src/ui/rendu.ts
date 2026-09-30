@@ -2,12 +2,12 @@ import type { Analyse } from '../moteur/analyse'
 import { metriquesAvancees } from '../moteur/avance'
 import { CHAINES } from '../moteur/chaines'
 import { lisible } from '../moteur/maths'
-import type { EtatPosition } from '../moteur/types'
+import { NOMS_PROTOCOLES, type EtatPosition } from '../moteur/types'
 import * as F from './format'
 import { html, type Fragment } from './html'
 
 function badges(e: EtatPosition, fermee: boolean): Fragment {
-  const protocole = e.ref.protocole === 'aerodrome' ? 'Aerodrome' : 'Uniswap v3'
+  const protocole = NOMS_PROTOCOLES[e.ref.protocole]
   return html`
     <span class="badge">${protocole} · ${CHAINES[e.ref.chaine].nom}</span>
     <span class="badge discret">#${e.ref.id.toString()}</span>
@@ -236,7 +236,11 @@ function panneauAvance(a: Analyse, erreur: string | null): Fragment {
       part0 === null ? '—' : html`${F.pourcent(part0)} <small>${s0}</small> · ${F.pourcent(100 - part0)} <small>${s1}</small>`,
       'Ce que vaut chaque jeton dans la position, au prix du jour.',
     ),
-    mesure('TVL du pool', F.dollars(m.tvlPoolUsd), 'Ce que le contrat du pool détient, toutes fourchettes confondues.'),
+    mesure(
+      'TVL du pool',
+      F.dollars(m.tvlPoolUsd),
+      e.poolId ? 'Uniswap v4 garde les jetons de tous ses pools ensemble : pas de solde propre à ce pool.' : 'Ce que le contrat du pool détient, toutes fourchettes confondues.',
+    ),
     mesure('Part du pool', F.taux(m.partDuPoolPourcent), 'Ta position rapportée à tout ce que le pool détient.'),
     mesure(
       'Part de la liquidité active',
@@ -254,8 +258,10 @@ function panneauAvance(a: Analyse, erreur: string | null): Fragment {
     ),
     mesure(
       'Pool',
-      html`<a href="${lienPool}" target="_blank" rel="noopener noreferrer">${e.pool.slice(0, 8)}…${e.pool.slice(-6)}</a>`,
-      `${s0} / ${s1} sur ${CHAINES[e.ref.chaine].nom}.`,
+      html`<a href="${lienPool}" target="_blank" rel="noopener noreferrer">${(e.poolId ?? e.pool).slice(0, 8)}…${(e.poolId ?? e.pool).slice(-6)}</a>`,
+      e.poolId
+        ? `${s0} / ${s1} sur ${CHAINES[e.ref.chaine].nom} : identifiant du pool dans le PoolManager, dont le lien ouvre le contrat.`
+        : `${s0} / ${s1} sur ${CHAINES[e.ref.chaine].nom}.`,
     ),
   ])
 

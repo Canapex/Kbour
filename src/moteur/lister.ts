@@ -1,6 +1,7 @@
-import type { Address } from 'viem'
-import { abiGauge, abiGestionnaire, abiVoter } from './abis'
-import { AERODROME, CHAINES, UNISWAP_V3, masquerCle, raisonIndisponible } from './chaines'
+import { pad, toEventSelector, type Address } from 'viem'
+import { abiGauge, abiGestionnaire, abiPositionsV4, abiVoter } from './abis'
+import { AERODROME, CHAINES, UNISWAP_V3, UNISWAP_V4, masquerCle, raisonIndisponible } from './chaines'
+import { lireJournalDecoupe } from './historique'
 import { lireParPaquets, lireTout, valeur } from './lecture'
 import type { IdChaine, Protocole, RefPosition } from './types'
 
@@ -59,6 +60,24 @@ async function nftDuWallet(chaine: IdChaine, gestionnaire: Address, wallet: Addr
   return (await lireParPaquets(client, appels)).map((r) => valeur<bigint>(r)).filter((id): id is bigint => id !== undefined)
 }
 
+/**
+ * Uniswap v4 : le contrat des positions n'est pas énumérable. Les NFT reçus par le wallet se lisent dans le
+ * journal (Transfer vers lui, depuis la création du contrat), puis on garde ceux qu'il détient encore.
+ */
+async function nftV4DuWallet(chaine: IdChaine, gestionnaire: Address, creation: bigint, wallet: Address): Promise<bigint[]> {
+  const c = CHAINES[chaine]
+  if (!c.journal) throw new Error('clé Alchemy requise pour retrouver les positions Uniswap v4')
+  const haut = await c.etat.getBlockNumber()
+  const recus = await lireJournalDecoupe(c, gestionnaire, [toEventSelector('Transfer(address,address,uint256)'), null, pad(wallet, { size: 32 })], creation, haut)
+  const candidats = [...new Set(recus.map((l) => BigInt(l.topics[3]!)))]
+  const proprietaires = await lireParPaquets(
+    c.etat,
+    candidats.map((id) => ({ address: gestionnaire, abi: abiPositionsV4, functionName: 'ownerOf', args: [id] })),
+  )
+  // Un NFT brûlé (position vidée puis détruite) ne répond plus : il n'est pas repris.
+  return candidats.filter((_, i) => valeur<Address>(proprietaires[i])?.toLowerCase() === wallet.toLowerCase())
+}
+
 /** Positions stakées : le NFT est dans le gauge, on les retrouve en interrogeant tous les gauges d'un coup. */
 async function stakeesAerodrome(wallet: Address): Promise<RefPosition[]> {
   const client = CHAINES.base.etat
@@ -81,14 +100,18 @@ async function stakeesAerodrome(wallet: Address): Promise<RefPosition[]> {
 async function garderOuvertes(chaine: IdChaine, candidats: RefPosition[]): Promise<{ ouvertes: RefPosition[]; fermees: RefPosition[] }> {
   const res = await lireParPaquets(
     CHAINES[chaine].etat,
-    candidats.map((c) => ({ address: c.gestionnaire, abi: abiGestionnaire, functionName: 'positions', args: [c.id] })),
+    candidats.map((c) =>
+      c.protocole === 'uniswap-v4'
+        ? { address: c.gestionnaire, abi: abiPositionsV4, functionName: 'getPositionLiquidity', args: [c.id] }
+        : { address: c.gestionnaire, abi: abiGestionnaire, functionName: 'positions', args: [c.id] },
+    ),
   )
   const ouvertes: RefPosition[] = []
   const fermees: RefPosition[] = []
   candidats.forEach((c, i) => {
-    const p = valeur<readonly unknown[]>(res[i])
-    if (!p) return
-    if ((p[7] as bigint) > 0n) ouvertes.push(c)
+    const liquidite = c.protocole === 'uniswap-v4' ? valeur<bigint>(res[i]) : (valeur<readonly unknown[]>(res[i])?.[7] as bigint | undefined)
+    if (liquidite === undefined) return
+    if (liquidite > 0n) ouvertes.push(c)
     else fermees.push(c)
   })
   return { ouvertes, fermees }
@@ -108,6 +131,12 @@ export async function listerPositions(wallet: Address): Promise<Inventaire> {
       chaine: u.chaine,
       lire: async () =>
         (await nftDuWallet(u.chaine, u.gestionnaire, wallet)).map((id) => ref(u.chaine, 'uniswap-v3', u.gestionnaire, id)),
+    })),
+    ...UNISWAP_V4.map((u) => ({
+      nom: `Uniswap v4 (${CHAINES[u.chaine].nom})`,
+      chaine: u.chaine,
+      lire: async () =>
+        (await nftV4DuWallet(u.chaine, u.gestionnaire, u.creation, wallet)).map((id) => ref(u.chaine, 'uniswap-v4', u.gestionnaire, id)),
     })),
     ...AERODROME.gestionnaires.map((g) => ({
       nom: `Aerodrome ${g.adresse.slice(0, 6)} (Base)`,

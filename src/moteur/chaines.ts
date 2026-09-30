@@ -140,6 +140,37 @@ export const UNISWAP_V3: { chaine: IdChaine; gestionnaire: Address; creation: bi
   { chaine: 'robinhood', gestionnaire: '0x73991a25c818bf1f1128deaab1492d45638de0d3', creation: 0n },
 ]
 
+/**
+ * Uniswap v4 : un contrat de positions (NFT, non énumérable), le PoolManager qui porte tous les pools de la
+ * chaîne, et StateView pour lire leur état. Vérifiés le 30/09/2026 : code présent, positions.poolManager()
+ * renvoie bien le PoolManager, bloc de création mesuré (getCode).
+ */
+export const UNISWAP_V4: { chaine: IdChaine; gestionnaire: Address; poolManager: Address; stateView: Address; creation: bigint }[] = [
+  {
+    chaine: 'ethereum',
+    gestionnaire: '0xbd216513d74c8cf14cf4747e6aaa6420ff64ee9e',
+    poolManager: '0x000000000004444c5dc75cB358380D2e3dE08A90',
+    stateView: '0x7ffe42c4a5deea5b0fec41c94c136cf115597227',
+    creation: 21_689_089n,
+  },
+  {
+    chaine: 'base',
+    gestionnaire: '0x7c5f5a4bbd8fd63184577525326123b519429bdc',
+    poolManager: '0x498581ff718922c3f8e6a244956af099b2652b2b',
+    stateView: '0xa3c0c9b65bad0b08107aa264b0f3db444b867a71',
+    creation: 25_350_993n,
+  },
+  {
+    chaine: 'robinhood',
+    gestionnaire: '0x58daec3116aae6d93017baaea7749052e8a04fa7',
+    poolManager: '0x8366a39cc670b4001a1121b8f6a443a643e40951',
+    stateView: '0xf3334192d15450cdd385c8b70e03f9a6bd9e673b',
+    creation: 9_073n,
+  },
+]
+
+export const v4De = (gestionnaire: Address) => UNISWAP_V4.find((u) => u.gestionnaire.toLowerCase() === gestionnaire.toLowerCase())
+
 export const AERODROME = {
   /** Les deux déploiements Slipstream en service ; blocs de création mesurés le 17/09/2026. */
   gestionnaires: [

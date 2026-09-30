@@ -1,8 +1,9 @@
 import { decodeEventLog, pad, parseAbi, toEventSelector, toHex, type Address, type Hex } from 'viem'
-import { abiGauge, abiPoolAerodrome, abiPoolUniswap } from './abis'
-import { AERODROME, CHAINES, UNISWAP_V3, type Chaine } from './chaines'
+import { abiGauge, abiPoolAerodrome, abiPoolUniswap, abiStateView } from './abis'
+import { AERODROME, CHAINES, UNISWAP_V3, v4De, type Chaine } from './chaines'
+import { selV4 } from './etat'
 import { lireTout, valeur } from './lecture'
-import { gainEntre, prixLisible, racinePrixDuTick, racinePrixX96 } from './maths'
+import { gainEntre, montantsExacts, prixLisible, racinePrixDuTick, racinePrixX96 } from './maths'
 import type { EtatPosition } from './types'
 
 // Historique lu dans le journal de la chaîne (eth_getLogs via Alchemy) : montants exacts, quelques requêtes.
@@ -86,7 +87,9 @@ function blocDeCreation(etat: EtatPosition): bigint {
   return AERODROME.gestionnaires.find((g) => g.adresse.toLowerCase() === gestionnaire)?.creation ?? 0n
 }
 
-async function lireJournal(
+const TROP_D_EVENEMENTS = 'plus de 10 000 événements'
+
+export async function lireJournal(
   chaine: Chaine,
   adresse: Address | Address[],
   topics: (Hex | Hex[] | null)[],
@@ -106,7 +109,7 @@ async function lireJournal(
     } catch (e) {
       const texte = `${(e as Error)?.message ?? e} ${(e as { details?: string })?.details ?? ''}`
       if (texte.includes('response size exceeded')) {
-        throw new Error('plus de 10 000 événements : position pilotée par un bot, historique non calculé')
+        throw new Error(`${TROP_D_EVENEMENTS} : position pilotée par un bot, historique non calculé`)
       }
       // Saturation passagère d'un RPC public : on réessaie en espaçant.
       if (essai >= 4 || !/timed out|too many requests|rate limit|\b429\b/i.test(texte)) throw e
@@ -115,7 +118,32 @@ async function lireJournal(
   }
 }
 
+/**
+ * Comme lireJournal, mais une plage qui dépasse 10 000 événements est coupée en deux, puis en deux encore :
+ * le journal d'un pool v4 très actif (tous ses dépôts passent par le même PoolManager) ne tient pas d'un coup.
+ */
+export async function lireJournalDecoupe(
+  chaine: Chaine,
+  adresse: Address | Address[],
+  topics: (Hex | Hex[] | null)[],
+  depuis: bigint,
+  jusqua: bigint,
+): Promise<LogBrut[]> {
+  try {
+    return await lireJournal(chaine, adresse, topics, depuis, jusqua)
+  } catch (e) {
+    if (!String((e as Error)?.message).startsWith(TROP_D_EVENEMENTS) || jusqua <= depuis) throw e
+    const milieu = (depuis + jusqua) / 2n
+    const [a, b] = await Promise.all([
+      lireJournalDecoupe(chaine, adresse, topics, depuis, milieu),
+      lireJournalDecoupe(chaine, adresse, topics, milieu + 1n, jusqua),
+    ])
+    return [...a, ...b]
+  }
+}
+
 export async function reconstruireHistorique(etat: EtatPosition): Promise<Historique> {
+  if (etat.ref.protocole === 'uniswap-v4') return historiqueV4(etat)
   const chaine = CHAINES[etat.ref.chaine]
   const chrono = Date.now()
   const aerodrome = etat.ref.protocole === 'aerodrome'
@@ -324,6 +352,167 @@ export async function reconstruireHistorique(etat: EtatPosition): Promise<Histor
     fees1: collecte1 - retire1 + etat.feesEnAttente1,
     aero: periodesStakees.reduce((s, p) => s + p.aero, 0n) - penalites,
     penalites,
+    transactions,
+    gazConnu,
+    requetes,
+    secondes: (Date.now() - chrono) / 1000,
+  }
+}
+
+// ── Uniswap v4 ──────────────────────────────────────────────────────────────────────────────────────────
+// Le contrat des positions n'émet ni dépôt, ni retrait, ni collect : tout se lit dans le PoolManager, qui émet
+// ModifyLiquidity (pool, contrat appelant, ticks, variation de liquidité, sel = numéro du NFT). Les montants
+// n'y figurent pas : ils se recalculent au wei près avec la variation de liquidité et le prix du pool à cet
+// instant (montantsExacts) : celui du dernier échange du même bloc qui la précède, à défaut celui du bloc d'avant. Les fees sont versées à chaque modification, sans événement : c'est la croissance
+// relevée dans la position juste après, moins celle d'avant, fois la liquidité d'avant (Position.update).
+
+const abiPoolManager = parseAbi([
+  'event ModifyLiquidity(bytes32 indexed id, address indexed sender, int24 tickLower, int24 tickUpper, int256 liquidityDelta, bytes32 salt)',
+  'event Swap(bytes32 indexed id, address indexed sender, int128 amount0, int128 amount1, uint160 sqrtPriceX96, uint128 liquidity, int24 tick, uint24 fee)',
+  'event Initialize(bytes32 indexed id, address indexed currency0, address indexed currency1, uint24 fee, int24 tickSpacing, address hooks, uint160 sqrtPriceX96, int24 tick)',
+])
+const MODIFICATION = toEventSelector('ModifyLiquidity(bytes32,address,int24,int24,int256,bytes32)')
+/** Ce qui fixe le prix d'un pool v4 : un échange, ou sa création (souvent dans la même transaction que le premier dépôt). */
+const PRIX_FIXE = [
+  toEventSelector('Swap(bytes32,address,int128,int128,uint160,uint128,int24,uint24)'),
+  toEventSelector('Initialize(bytes32,address,address,uint24,int24,address,uint160,int24)'),
+]
+
+async function historiqueV4(etat: EtatPosition): Promise<Historique> {
+  const chaine = CHAINES[etat.ref.chaine]
+  const chrono = Date.now()
+  const v4 = v4De(etat.ref.gestionnaire)!
+  const sel = selV4(etat.ref.id)
+  let requetes = 0
+
+  // 1. Naissance du NFT, puis ses modifications, filtrées par pool, par contrat des positions et par sel.
+  const naissances = await lireJournal(chaine, etat.ref.gestionnaire, [SUJET.transfert, null, null, sel], v4.creation, etat.bloc)
+  requetes++
+  if (!naissances.length) throw new Error('aucune trace du NFT dans le journal : position illisible')
+  const depuis = naissances.map((l) => BigInt(l.blockNumber)).reduce((a, b) => (a < b ? a : b))
+  const bruts = await lireJournalDecoupe(chaine, v4.poolManager, [MODIFICATION, etat.poolId!, pad(etat.ref.gestionnaire, { size: 32 })], depuis, etat.bloc)
+  requetes++
+  const modifications = bruts
+    .map((log) => ({
+      bloc: BigInt(log.blockNumber),
+      index: Number(BigInt(log.logIndex)),
+      hash: log.transactionHash,
+      heure: log.blockTimestamp ? Number(BigInt(log.blockTimestamp)) : 0,
+      ...(decodeEventLog({ abi: abiPoolManager, data: log.data, topics: log.topics }).args as {
+        tickLower: number
+        tickUpper: number
+        liquidityDelta: bigint
+        salt: Hex
+      }),
+    }))
+    .filter((m) => m.salt.toLowerCase() === sel.toLowerCase() && m.tickLower === etat.tickBas && m.tickUpper === etat.tickHaut)
+    .sort((a, b) => (a.bloc === b.bloc ? a.index - b.index : a.bloc < b.bloc ? -1 : 1))
+  if (!modifications.length) throw new Error('aucun dépôt dans le journal : position illisible')
+
+  // Horodatages : joints par Alchemy ; sinon, lecture du bloc (RPC public de Robinhood).
+  const heures = new Map<bigint, number>()
+  for (const m of modifications) if (m.heure > 1_400_000_000) heures.set(m.bloc, m.heure)
+  await Promise.all(
+    [...new Set(modifications.filter((m) => !heures.has(m.bloc)).map((m) => m.bloc))].map(async (b) => {
+      const bloc = await chaine.limiterArchive(() => chaine.archive.getBlock({ blockNumber: b }))
+      heures.set(b, Number(bloc.timestamp))
+      requetes++
+    }),
+  )
+
+  // 2. Pour chaque bloc touché : prix du pool et relevé de la position juste avant, relevé juste après.
+  const releve = { address: v4.stateView, abi: abiStateView, functionName: 'getPositionInfo', args: [etat.poolId!, etat.ref.gestionnaire, etat.tickBas, etat.tickHaut, sel] }
+  const slot0 = { address: v4.stateView, abi: abiStateView, functionName: 'getSlot0', args: [etat.poolId!] }
+  const blocs = [...new Set(modifications.map((m) => m.bloc))]
+  const lectures = new Map(
+    await Promise.all(
+      blocs.map(async (b) => {
+        const [avant, apres] = await Promise.all([
+          chaine.limiterArchive(() => lireTout(chaine.archive, [slot0, releve], b - 1n, chaine.multicallDepuis)),
+          chaine.limiterArchive(() => lireTout(chaine.archive, [releve], b, chaine.multicallDepuis)),
+        ])
+        requetes += 2
+        const s = valeur<readonly [bigint, number]>(avant[0])
+        const r0 = valeur<readonly [bigint, bigint, bigint]>(avant[1])
+        const r1 = valeur<readonly [bigint, bigint, bigint]>(apres[0])
+        if (!s || !r0 || !r1) throw new Error(`état du pool illisible au bloc ${b}`)
+        return [b, { sqrtPriceX96: s[0], tick: Number(s[1]), avant: r0, apres: r1 }] as const
+      }),
+    ),
+  )
+
+  // Prix exact de chaque dépôt ou retrait : un échange placé avant lui dans le même bloc a déjà bougé le pool.
+  const prixDuBloc = new Map(
+    await Promise.all(
+      [...new Set(modifications.filter((m) => m.liquidityDelta !== 0n).map((m) => m.bloc))].map(async (b) => {
+        const logs = await lireJournal(chaine, v4.poolManager, [PRIX_FIXE, etat.poolId!], b, b)
+        requetes++
+        const fixes = logs
+          .map((log) => ({
+            index: Number(BigInt(log.logIndex)),
+            ...(decodeEventLog({ abi: abiPoolManager, data: log.data, topics: log.topics }).args as { sqrtPriceX96: bigint; tick: number }),
+          }))
+          .sort((a, c) => a.index - c.index)
+        return [b, fixes] as const
+      }),
+    ),
+  )
+
+  // 3. Parcours chronologique.
+  const d0 = etat.jeton0.decimales
+  const d1 = etat.jeton1.decimales
+  const mouvements: Mouvement[] = []
+  const reclamations: RetraitDeFees[] = []
+  let verse0 = 0n
+  let verse1 = 0n
+  let ouverture: { bloc: bigint; horodatage: number } | null = null
+  for (const b of blocs) {
+    const l = lectures.get(b)!
+    const horodatage = heures.get(b)!
+    const fees0 = gainEntre(l.apres[1], l.avant[1], l.avant[0])
+    const fees1 = gainEntre(l.apres[2], l.avant[2], l.avant[0])
+    if (fees0 > 0n || fees1 > 0n) {
+      verse0 += fees0
+      verse1 += fees1
+      reclamations.push({ bloc: b, horodatage, fees0: Number(fees0) / 10 ** d0, fees1: Number(fees1) / 10 ** d1 })
+    }
+    for (const m of modifications.filter((x) => x.bloc === b && x.liquidityDelta !== 0n)) {
+      const fixe = prixDuBloc.get(b)!.filter((f) => f.index < m.index).at(-1) ?? l
+      if (fixe.sqrtPriceX96 === 0n) throw new Error(`prix du pool introuvable au bloc ${b}`)
+      const depot = m.liquidityDelta > 0n
+      const [brut0, brut1] = montantsExacts(depot ? m.liquidityDelta : -m.liquidityDelta, fixe.sqrtPriceX96, Number(fixe.tick), etat.tickBas, etat.tickHaut, depot)
+      if (depot) ouverture ??= { bloc: b, horodatage }
+      const prix = prixLisible(racinePrixX96(fixe.sqrtPriceX96), d0, d1)
+      mouvements.push({ type: depot ? 'depot' : 'retrait', bloc: b, horodatage, quantite0: Number(brut0) / 10 ** d0, quantite1: Number(brut1) / 10 ** d1, prix })
+    }
+  }
+  if (!ouverture) throw new Error('aucun dépôt dans le journal : position illisible')
+
+  // 4. Gas : un reçu par transaction qui a touché la position.
+  let gazConnu = true
+  const transactions = await Promise.all(
+    [...new Map(modifications.map((m) => [m.hash, heures.get(m.bloc)!]))].map(async ([hash, horodatage]) => {
+      try {
+        const recu = await chaine.limiterArchive(() => chaine.archive.getTransactionReceipt({ hash }))
+        requetes++
+        const l1 = (recu as { l1Fee?: bigint | null }).l1Fee ?? 0n
+        return { horodatage, gaz: recu.gasUsed * recu.effectiveGasPrice + l1 }
+      } catch {
+        gazConnu = false
+        return { horodatage, gaz: 0n }
+      }
+    }),
+  )
+
+  return {
+    ouverture,
+    mouvements,
+    periodesStakees: [],
+    reclamations,
+    fees0: verse0 + etat.feesEnAttente0,
+    fees1: verse1 + etat.feesEnAttente1,
+    aero: 0n,
+    penalites: 0n,
     transactions,
     gazConnu,
     requetes,

@@ -11,6 +11,21 @@ export const abiGestionnaire = parseAbi([
   'function positions(uint256 tokenId) view returns (uint96 nonce, address operator, address token0, address token1, uint24 feeOuEspacement, int24 tickLower, int24 tickUpper, uint128 liquidity, uint256 feeGrowthInside0LastX128, uint256 feeGrowthInside1LastX128, uint128 tokensOwed0, uint128 tokensOwed1)',
 ])
 
+/** Uniswap v4 : contrat des positions. La clé du pool et les ticks sont rangés dans un uint256 (PositionInfo). */
+export const abiPositionsV4 = parseAbi([
+  'function ownerOf(uint256 tokenId) view returns (address)',
+  'function getPoolAndPositionInfo(uint256 tokenId) view returns ((address currency0, address currency1, uint24 fee, int24 tickSpacing, address hooks) poolKey, uint256 info)',
+  'function getPositionLiquidity(uint256 tokenId) view returns (uint128 liquidity)',
+])
+
+/** Uniswap v4 : lecture de l'état des pools du PoolManager. */
+export const abiStateView = parseAbi([
+  'function getSlot0(bytes32 poolId) view returns (uint160 sqrtPriceX96, int24 tick, uint24 protocolFee, uint24 lpFee)',
+  'function getLiquidity(bytes32 poolId) view returns (uint128 liquidity)',
+  'function getFeeGrowthInside(bytes32 poolId, int24 tickLower, int24 tickUpper) view returns (uint256 feeGrowthInside0X128, uint256 feeGrowthInside1X128)',
+  'function getPositionInfo(bytes32 poolId, address owner, int24 tickLower, int24 tickUpper, bytes32 salt) view returns (uint128 liquidity, uint256 feeGrowthInside0LastX128, uint256 feeGrowthInside1LastX128)',
+])
+
 export const abiFactoryUniswap = parseAbi([
   'function getPool(address tokenA, address tokenB, uint24 fee) view returns (address)',
 ])

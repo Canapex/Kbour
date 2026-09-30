@@ -8,6 +8,7 @@ import type { Analyse } from '../moteur/analyse'
 import { metriquesAvancees, type Avance } from '../moteur/avance'
 import { CHAINES } from '../moteur/chaines'
 import { lisible } from '../moteur/maths'
+import { NOMS_PROTOCOLES } from '../moteur/types'
 import { sens } from './format'
 
 type Valeur = string | number | Date | null | undefined
@@ -97,7 +98,7 @@ function feuille<T>(colonnes: Colonne<T>[], lignes: T[]): string {
 }
 
 // Colonnes communes à toutes les feuilles : de quelle position parle la ligne.
-const protocole = (a: Analyse) => (a.etat.ref.protocole === 'aerodrome' ? 'Aerodrome' : 'Uniswap v3')
+const protocole = (a: Analyse) => NOMS_PROTOCOLES[a.etat.ref.protocole]
 function identite<T>(position: (x: T) => Analyse): Colonne<T>[] {
   return [
     { titre: 'Chaîne', largeur: 16, valeur: (x) => CHAINES[position(x).etat.ref.chaine].nom },
@@ -157,6 +158,7 @@ const COLONNES_POSITIONS: Colonne<Ligne>[] = [
   { titre: "Prix jeton 0 aujourd'hui ($)", valeur: ({ a }) => a.usd0 },
   { titre: "Prix jeton 1 aujourd'hui ($)", valeur: ({ a }) => a.usd1 },
   { titre: 'Contrat du pool', largeur: 44, valeur: ({ a }) => a.etat.pool },
+  { titre: 'Identifiant du pool (v4)', largeur: 68, valeur: ({ a }) => a.etat.poolId ?? '' },
 ]
 
 type LigneMouvement = { a: Analyse; i: number }

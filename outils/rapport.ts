@@ -10,7 +10,7 @@ import { reconstruireHistorique, type Historique } from '../src/moteur/historiqu
 import { listerPositions, message } from '../src/moteur/lister'
 import { lisible } from '../src/moteur/maths'
 import { CLE_GAZ, cleDePrix, prixActuels, prixHistoriquesGroupes, type Prix } from '../src/moteur/prix'
-import type { RefPosition } from '../src/moteur/types'
+import { NOMS_PROTOCOLES, type RefPosition } from '../src/moteur/types'
 import * as F from '../src/ui/format'
 
 const saisie = process.argv[2]
@@ -60,7 +60,7 @@ function afficher(a: Analyse, erreur: string | null) {
   const e = a.etat
   const s = F.sens(e.jeton0.symbole, e.jeton1.symbole)
   const h = a.historique
-  const protocole = e.ref.protocole === 'aerodrome' ? 'Aerodrome' : 'Uniswap v3'
+  const protocole = NOMS_PROTOCOLES[e.ref.protocole]
   const statut = a.fermee
     ? 'FERMÉE'
     : [e.ref.gauge ? 'stakée' : null, e.dansLaFourchette ? 'DANS la fourchette' : 'HORS fourchette'].filter(Boolean).join(' · ')
