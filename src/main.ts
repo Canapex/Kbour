@@ -183,7 +183,8 @@ async function analyserWallet(wallet: Address) {
 
   proposerFermees(inventaire.fermees, wallet, abandonnee, courant)
   majExport()
-  const erreurs = inventaire.erreurs.length ? ` · ${inventaire.erreurs.join(' ; ')}` : ''
+  const signale = [...inventaire.erreurs, ...inventaire.notes]
+  const erreurs = signale.length ? ` · ${signale.join(' ; ')}` : ''
   dire(`Analyse terminée en ${secondes((Date.now() - chrono) / 1000)}${erreurs}`, inventaire.erreurs.length > 0)
 }
 

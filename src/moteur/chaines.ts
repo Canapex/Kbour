@@ -141,6 +141,27 @@ export const UNISWAP_V3: { chaine: IdChaine; gestionnaire: Address; creation: bi
 ]
 
 /**
+ * PancakeSwap v3 : clone du contrat NFT d'Uniswap v3, à la même adresse sur chaque chaîne. Une position mise en
+ * farm part dans le MasterChef v3, qui la garde et verse des CAKE ; ses fees de swap continuent de courir.
+ * Blocs de création et MasterChef mesurés le 30/09/2026 (getCode ; MasterChef.nonfungiblePositionManager()).
+ */
+export const PANCAKESWAP_V3: { chaine: IdChaine; gestionnaire: Address; creation: bigint; masterChef: Address | null }[] = [
+  {
+    chaine: 'ethereum',
+    gestionnaire: '0x46A15B0b27311cedF172AB29E4f4766fbE7F4364',
+    creation: 16_944_786n,
+    masterChef: '0x556B9306565093C855AEA9AE92A594704c2Cd59e',
+  },
+  {
+    chaine: 'base',
+    gestionnaire: '0x46A15B0b27311cedF172AB29E4f4766fbE7F4364',
+    creation: 2_912_503n,
+    masterChef: '0xC6A2Db661D5a5690172d8eB0a7DEA2d3008665A3',
+  },
+  { chaine: 'robinhood', gestionnaire: '0x46A15B0b27311cedF172AB29E4f4766fbE7F4364', creation: 536_267n, masterChef: null },
+]
+
+/**
  * Uniswap v4 : un contrat de positions (NFT, non énumérable), le PoolManager qui porte tous les pools de la
  * chaîne, et StateView pour lire leur état. Vérifiés le 30/09/2026 : code présent, positions.poolManager()
  * renvoie bien le PoolManager, bloc de création mesuré (getCode).
@@ -169,7 +190,37 @@ export const UNISWAP_V4: { chaine: IdChaine; gestionnaire: Address; poolManager:
   },
 ]
 
-export const v4De = (gestionnaire: Address) => UNISWAP_V4.find((u) => u.gestionnaire.toLowerCase() === gestionnaire.toLowerCase())
+/**
+ * PancakeSwap Infinity (sa « v4 »), partie concentrée : même principe qu'Uniswap v4 (un PoolManager pour tous les
+ * pools, un contrat de positions NFT non énumérable), mais l'état se lit dans le PoolManager lui-même.
+ * Déployé sur Base (et BNB Chain, que Kbour ne lit pas) ; absent d'Ethereum et de Robinhood (getCode, 30/09/2026).
+ * Les pools « Bin » (liquidité par paliers de prix, sans fourchette) ne sont pas lus.
+ */
+export const PANCAKESWAP_INFINITY: { chaine: IdChaine; gestionnaire: Address; poolManager: Address; creation: bigint }[] = [
+  {
+    chaine: 'base',
+    gestionnaire: '0x55f4c8abA71A1e923edC303eb4fEfF14608cC226',
+    poolManager: '0xa0FfB9c1CE1Fe56963B0321B32E7A0302114058b',
+    creation: 30_546_518n,
+  },
+]
+
+/** Les deux familles « v4 » : un PoolManager unique ; `lecteur` est le contrat où lire l'état des pools. */
+export interface Singleton {
+  chaine: IdChaine
+  protocole: 'uniswap-v4' | 'pancakeswap-infinity'
+  gestionnaire: Address
+  poolManager: Address
+  lecteur: Address
+  creation: bigint
+}
+export const SINGLETONS: Singleton[] = [
+  ...UNISWAP_V4.map((u) => ({ ...u, protocole: 'uniswap-v4' as const, lecteur: u.stateView })),
+  ...PANCAKESWAP_INFINITY.map((p) => ({ ...p, protocole: 'pancakeswap-infinity' as const, lecteur: p.poolManager })),
+]
+export const v4De = (chaine: IdChaine, gestionnaire: Address): Singleton | undefined =>
+  SINGLETONS.find((s) => s.chaine === chaine && s.gestionnaire.toLowerCase() === gestionnaire.toLowerCase())
+export const estSingleton = (protocole: string): boolean => protocole === 'uniswap-v4' || protocole === 'pancakeswap-infinity'
 
 export const AERODROME = {
   /** Les deux déploiements Slipstream en service ; blocs de création mesurés le 17/09/2026. */

@@ -1,19 +1,20 @@
-// Uniswap v4 sur de vraies positions. Deux usages (n'affiche jamais la clé) :
-//   npx tsx outils/essai-v4.ts trouver base         wallets (pas des contrats) actifs en v4 ces dernières heures
-//   npx tsx outils/essai-v4.ts verifier base 12345  historique recalculé face aux jetons réellement transférés
+// Uniswap v4 et PancakeSwap Infinity sur de vraies positions. Deux usages (n'affiche jamais la clé) :
+//   npx tsx outils/essai-v4.ts trouver base [pancake]         wallets (pas des contrats) actifs ces dernières heures
+//   npx tsx outils/essai-v4.ts verifier base 12345 [pancake]  historique recalculé face aux jetons réellement transférés
 import './env'
 import { decodeEventLog, formatUnits, getAddress, parseAbi, toEventSelector, type Address, type Hex } from 'viem'
-import { CHAINES, UNISWAP_V4 } from '../src/moteur/chaines'
+import { CHAINES, SINGLETONS } from '../src/moteur/chaines'
 import { lireEtats } from '../src/moteur/etat'
 import { lireJournalDecoupe, reconstruireHistorique } from '../src/moteur/historique'
 import { lireParPaquets, valeur } from '../src/moteur/lecture'
 import type { IdChaine } from '../src/moteur/types'
 
-const [mode, idChaine, idPosition] = process.argv.slice(2) as [string, IdChaine, string | undefined]
+const pancake = process.argv.includes('pancake')
+const [mode, idChaine, idPosition] = process.argv.slice(2).filter((x) => x !== 'pancake') as [string, IdChaine, string | undefined]
 const chaine = CHAINES[idChaine]
-const v4 = UNISWAP_V4.find((u) => u.chaine === idChaine)
+const v4 = SINGLETONS.find((s) => s.chaine === idChaine && s.protocole === (pancake ? 'pancakeswap-infinity' : 'uniswap-v4'))
 if (!chaine || !v4 || (mode !== 'trouver' && mode !== 'verifier')) {
-  console.error('usage : npx tsx outils/essai-v4.ts trouver|verifier <chaine> [idDeLaPosition]')
+  console.error('usage : npx tsx outils/essai-v4.ts trouver|verifier <chaine> [idDeLaPosition] [pancake]')
   process.exit(1)
 }
 const abi = parseAbi([
@@ -21,6 +22,7 @@ const abi = parseAbi([
   'event Transfer(address indexed from, address indexed to, uint256 value)',
   'function ownerOf(uint256) view returns (address)',
   'function getPositionLiquidity(uint256) view returns (uint128)',
+  'function vault() view returns (address)',
 ])
 const MODIFICATION = toEventSelector('ModifyLiquidity(bytes32,address,int24,int24,int256,bytes32)')
 const expediteur = `0x${v4.gestionnaire.slice(2).toLowerCase().padStart(64, '0')}` as Hex
@@ -60,15 +62,17 @@ if (mode === 'trouver') {
 } else {
   const id = BigInt(idPosition!)
   const proprietaire = await chaine.etat.readContract({ address: v4.gestionnaire, abi, functionName: 'ownerOf', args: [id] })
-  const [etat] = await lireEtats([{ chaine: idChaine, protocole: 'uniswap-v4', gestionnaire: v4.gestionnaire, id, gauge: null }], proprietaire)
+  const [etat] = await lireEtats([{ chaine: idChaine, protocole: v4.protocole, gestionnaire: v4.gestionnaire, id, gauge: null }], proprietaire)
   const [j0, j1] = [etat.jeton0, etat.jeton1]
   console.log(`#${id} ${j0.symbole}/${j1.symbole}  ticks ${etat.tickBas}..${etat.tickHaut}  L ${etat.liquidite}  fees en attente ${formatUnits(etat.feesEnAttente0, j0.decimales)} / ${formatUnits(etat.feesEnAttente1, j1.decimales)}`)
   const h = await reconstruireHistorique(etat)
   console.log(`historique : ${h.mouvements.length} mouvements, ${h.reclamations.length} réclamations, ${h.requetes} requêtes, ${h.secondes.toFixed(1)} s`)
 
-  // Chaque transaction de la position : ce que le PoolManager a réellement envoyé (+) ou reçu (−), jeton par jeton.
+  // Chaque transaction de la position : ce que le coffre a réellement envoyé (+) ou reçu (−), jeton par jeton.
   const logs = await lireJournalDecoupe(chaine, v4.poolManager, [MODIFICATION, etat.poolId!, expediteur], h.ouverture.bloc, etat.bloc)
-  const pm = v4.poolManager.toLowerCase()
+  // Les jetons dorment dans le PoolManager chez Uniswap, dans un coffre à part (Vault) chez PancakeSwap.
+  const coffre = v4.protocole === 'uniswap-v4' ? v4.poolManager : await chaine.etat.readContract({ address: v4.poolManager, abi, functionName: 'vault' })
+  const pm = coffre.toLowerCase()
   for (const l of logs) {
     const m = decodeEventLog({ abi, data: l.data, topics: l.topics }).args as { liquidityDelta: bigint; salt: Hex }
     if (BigInt(m.salt) !== id) continue

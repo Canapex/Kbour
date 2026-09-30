@@ -30,6 +30,7 @@ console.log(
   `${inventaire.positions.length} position(s) ouverte(s), ${inventaire.fermees.length} fermée(s)${avecFermees ? '' : ' (ajouter --fermees pour les voir)'} — ${secondes()} s`,
 )
 for (const e of inventaire.erreurs) console.log(`  ! ${e}`)
+for (const n of inventaire.notes) console.log(`  · ${n}`)
 
 async function traiter(refs: RefPosition[]): Promise<{ analyse: Analyse; erreur: string | null }[]> {
   const etats = await lireEtats(refs, wallet)

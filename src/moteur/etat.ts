@@ -6,13 +6,14 @@ import {
   abiGestionnaire,
   abiJeton,
   abiJetonBytes32,
+  abiDuPool,
   abiMulticall3,
-  abiPoolAerodrome,
-  abiPoolUniswap,
+  abiPoolManagerInfinity,
+  abiPositionsInfinity,
   abiPositionsV4,
   abiStateView,
 } from './abis'
-import { CHAINES, MULTICALL3, v4De } from './chaines'
+import { CHAINES, MULTICALL3, estSingleton, v4De, type Singleton } from './chaines'
 import { lireTout, valeur, type Appel, type Resultat } from './lecture'
 import {
   Q128,
@@ -90,7 +91,7 @@ async function etatsDeLaChaine(chaine: IdChaine, refs: RefPosition[], wallet: Ad
   const lecturesPool = new Map(
     poolsUniques.map((pool) => {
       const aero = protocoleDuPool.get(pool) === 'aerodrome'
-      const abi = aero ? abiPoolAerodrome : abiPoolUniswap
+      const abi = abiDuPool(protocoleDuPool.get(pool)!)
       const lire = (functionName: string) => ajouter({ address: pool, abi, functionName })
       const [t0, t1] = jetonsDuPool.get(pool)!
       // Pour l'onglet avancé : liquidité active, frais du pool et réserves (sa TVL).
@@ -116,7 +117,7 @@ async function etatsDeLaChaine(chaine: IdChaine, refs: RefPosition[], wallet: Ad
   )
 
   const lecturesPosition = definitions.map((d, i) => {
-    const abiPool = d.ref.protocole === 'aerodrome' ? abiPoolAerodrome : abiPoolUniswap
+    const abiPool = abiDuPool(d.ref.protocole)
     return {
       position: ajouter({ address: d.ref.gestionnaire, abi: abiGestionnaire, functionName: 'positions', args: [d.ref.id] }),
       proprietaire: ajouter({ address: d.ref.gestionnaire, abi: abiGestionnaire, functionName: 'ownerOf', args: [d.ref.id] }),
@@ -270,12 +271,32 @@ interface CleDePool {
   hooks: Address
 }
 
+/** Clé d'un pool PancakeSwap Infinity : le PoolManager y figure, et des « paramètres » (espacement des ticks, drapeaux du hook). */
+interface CleInfinity {
+  currency0: Address
+  currency1: Address
+  hooks: Address
+  poolManager: Address
+  fee: number
+  parameters: Hex
+}
+
 /** Identifiant du pool : keccak256(abi.encode(PoolKey)). */
 export function idDuPool(cle: CleDePool): Hex {
   return keccak256(
     encodeAbiParameters(
       [{ type: 'address' }, { type: 'address' }, { type: 'uint24' }, { type: 'int24' }, { type: 'address' }],
       [cle.currency0, cle.currency1, cle.fee, cle.tickSpacing, cle.hooks],
+    ),
+  )
+}
+
+/** Même chose chez PancakeSwap Infinity, dans l'ordre de sa clé. */
+export function idDuPoolInfinity(cle: CleInfinity): Hex {
+  return keccak256(
+    encodeAbiParameters(
+      [{ type: 'address' }, { type: 'address' }, { type: 'address' }, { type: 'address' }, { type: 'uint24' }, { type: 'bytes32' }],
+      [cle.currency0, cle.currency1, cle.hooks, cle.poolManager, cle.fee, cle.parameters],
     ),
   )
 }
@@ -287,53 +308,87 @@ const int24 = (x: bigint): number => {
 }
 export const ticksDeLaPosition = (info: bigint): [number, number] => [int24(info >> 8n), int24(info >> 32n)]
 
-/** Frais « dynamiques » : un hook les fixe à chaque swap, la clé du pool porte alors ce drapeau. */
+/** Frais « dynamiques » : un hook les fixe à chaque swap, la clé du pool porte alors ce drapeau (le même chez les deux). */
 const FRAIS_DYNAMIQUES = 0x800000
+
+/** Prix du pool : StateView chez Uniswap, le PoolManager lui-même chez PancakeSwap ; mêmes valeurs renvoyées. */
+export function appelSlot0(s: Singleton, poolId: Hex): Appel {
+  const abi = s.protocole === 'uniswap-v4' ? abiStateView : abiPoolManagerInfinity
+  return { address: s.lecteur, abi, functionName: 'getSlot0', args: [poolId] }
+}
+
+/** Relevé de la position dans le PoolManager : sa liquidité et les croissances notées à son dernier passage. */
+export function appelReleve(s: Singleton, poolId: Hex, tickBas: number, tickHaut: number, id: bigint): Appel {
+  const args = [poolId, s.gestionnaire, tickBas, tickHaut, selV4(id)]
+  return s.protocole === 'uniswap-v4'
+    ? { address: s.lecteur, abi: abiStateView, functionName: 'getPositionInfo', args }
+    : { address: s.lecteur, abi: abiPoolManagerInfinity, functionName: 'getPosition', args }
+}
 
 async function etatsV4(chaine: IdChaine, refs: RefPosition[]): Promise<EtatPosition[]> {
   const client = CHAINES[chaine].etat
   const bloc = (await client.getBlockNumber()) - CHAINES[chaine].marge
+  const familles = refs.map((r) => v4De(chaine, r.gestionnaire)!)
 
   // 1. Clé du pool, ticks et liquidité de chaque position.
   const a = await lireTout(
     client,
-    refs.flatMap((r) => [
-      { address: r.gestionnaire, abi: abiPositionsV4, functionName: 'getPoolAndPositionInfo', args: [r.id] },
-      { address: r.gestionnaire, abi: abiPositionsV4, functionName: 'getPositionLiquidity', args: [r.id] },
-    ]),
+    refs.flatMap((r, i): Appel[] =>
+      familles[i].protocole === 'uniswap-v4'
+        ? [
+            { address: r.gestionnaire, abi: abiPositionsV4, functionName: 'getPoolAndPositionInfo', args: [r.id] },
+            { address: r.gestionnaire, abi: abiPositionsV4, functionName: 'getPositionLiquidity', args: [r.id] },
+          ]
+        : [
+            { address: r.gestionnaire, abi: abiPositionsInfinity, functionName: 'positions', args: [r.id] },
+            { address: r.gestionnaire, abi: abiPositionsInfinity, functionName: 'getPositionLiquidity', args: [r.id] },
+          ],
+    ),
     bloc,
   )
   const definitions = refs.map((r, i) => {
-    const res = valeur<readonly [CleDePool, bigint]>(a[2 * i])
+    const s = familles[i]
     const liquidite = valeur<bigint>(a[2 * i + 1])
+    if (s.protocole === 'pancakeswap-infinity') {
+      const p = valeur<readonly [CleInfinity, number, number]>(a[2 * i])
+      if (!p || liquidite === undefined) throw new Error(`position PancakeSwap Infinity #${r.id} illisible`)
+      const [cle, tickBas, tickHaut] = p
+      const poolId = idDuPoolInfinity(cle)
+      return { ref: r, s, currency0: cle.currency0, currency1: cle.currency1, fee: cle.fee, poolId, tickBas: Number(tickBas), tickHaut: Number(tickHaut), liquidite }
+    }
+    const res = valeur<readonly [CleDePool, bigint]>(a[2 * i])
     if (!res || liquidite === undefined) throw new Error(`position v4 #${r.id} illisible`)
     const [cle, info] = res
     const [tickBas, tickHaut] = ticksDeLaPosition(info)
-    return { ref: r, cle, poolId: idDuPool(cle), tickBas, tickHaut, liquidite, v4: v4De(r.gestionnaire)! }
+    return { ref: r, s, currency0: cle.currency0, currency1: cle.currency1, fee: cle.fee, poolId: idDuPool(cle), tickBas, tickHaut, liquidite }
   })
 
   // 2. La photo : pools (prix, liquidité active), croissances et relevés de chaque position, jetons.
   const appels: Appel[] = []
   const ajouter = (appel: Appel): number => appels.push(appel) - 1
   const iHeure = ajouter({ address: MULTICALL3, abi: abiMulticall3, functionName: 'getCurrentBlockTimestamp' })
-  const lecturesPool = new Map<Hex, { slot0: number; active: number }>()
+  const lecturesPool = new Map<Hex, { slot0: number; active: number; globales: number }>()
   for (const d of definitions) {
     if (lecturesPool.has(d.poolId)) continue
+    const uniswap = d.s.protocole === 'uniswap-v4'
     lecturesPool.set(d.poolId, {
-      slot0: ajouter({ address: d.v4.stateView, abi: abiStateView, functionName: 'getSlot0', args: [d.poolId] }),
-      active: ajouter({ address: d.v4.stateView, abi: abiStateView, functionName: 'getLiquidity', args: [d.poolId] }),
+      slot0: ajouter(appelSlot0(d.s, d.poolId)),
+      active: ajouter({ address: d.s.lecteur, abi: uniswap ? abiStateView : abiPoolManagerInfinity, functionName: 'getLiquidity', args: [d.poolId] }),
+      globales: uniswap ? -1 : ajouter({ address: d.s.lecteur, abi: abiPoolManagerInfinity, functionName: 'getFeeGrowthGlobals', args: [d.poolId] }),
     })
   }
-  const lecturesPosition = definitions.map((d) => ({
-    croissance: ajouter({ address: d.v4.stateView, abi: abiStateView, functionName: 'getFeeGrowthInside', args: [d.poolId, d.tickBas, d.tickHaut] }),
-    releve: ajouter({
-      address: d.v4.stateView,
-      abi: abiStateView,
-      functionName: 'getPositionInfo',
-      args: [d.poolId, d.ref.gestionnaire, d.tickBas, d.tickHaut, selV4(d.ref.id)],
-    }),
-  }))
-  const jetons = unique(definitions.flatMap((d) => [d.cle.currency0, d.cle.currency1])).filter((j) => j.toLowerCase() !== ZERO)
+  const lecturesPosition = definitions.map((d) => {
+    const uniswap = d.s.protocole === 'uniswap-v4'
+    const tickInfo = (t: number) => ajouter({ address: d.s.lecteur, abi: abiPoolManagerInfinity, functionName: 'getPoolTickInfo', args: [d.poolId, t] })
+    return {
+      // Uniswap donne la croissance « à l'intérieur » toute faite ; chez PancakeSwap, elle se déduit des deux ticks, comme en v3.
+      croissance: uniswap ? ajouter({ address: d.s.lecteur, abi: abiStateView, functionName: 'getFeeGrowthInside', args: [d.poolId, d.tickBas, d.tickHaut] }) : -1,
+      tickBas: uniswap ? -1 : tickInfo(d.tickBas),
+      tickHaut: uniswap ? -1 : tickInfo(d.tickHaut),
+      releve: ajouter(appelReleve(d.s, d.poolId, d.tickBas, d.tickHaut, d.ref.id)),
+    }
+  })
+  const jetons = unique(definitions.flatMap((d) => [d.currency0, d.currency1])).filter((j) => j.toLowerCase() !== ZERO)
   const lecturesJeton = new Map(
     jetons.map((j) => [
       j,
@@ -365,13 +420,25 @@ async function etatsV4(chaine: IdChaine, refs: RefPosition[]): Promise<EtatPosit
     const lp = lecturesPosition[i]
     const lpool = lecturesPool.get(d.poolId)!
     const slot0 = valeur<readonly [bigint, number, number, number]>(r[lpool.slot0])
-    const croissance = valeur<readonly [bigint, bigint]>(r[lp.croissance])
     const releve = valeur<readonly [bigint, bigint, bigint]>(r[lp.releve])
-    if (!slot0 || !croissance || !releve) throw new Error(`pool de la position v4 #${d.ref.id} illisible`)
+    if (!slot0 || !releve) throw new Error(`pool de la position #${d.ref.id} illisible`)
     const [sqrtPriceX96, tickBrut, , fraisLp] = slot0
     const tick = Number(tickBrut)
-    const j0 = infoJeton(d.cle.currency0)
-    const j1 = infoJeton(d.cle.currency1)
+    let croissance = lp.croissance >= 0 ? valeur<readonly [bigint, bigint]>(r[lp.croissance]) : undefined
+    if (lp.croissance < 0) {
+      const globales = valeur<readonly [bigint, bigint]>(r[lpool.globales])
+      const bas = valeur<readonly [bigint, bigint, bigint, bigint]>(r[lp.tickBas])
+      const haut = valeur<readonly [bigint, bigint, bigint, bigint]>(r[lp.tickHaut])
+      if (globales && bas && haut) {
+        croissance = [
+          croissanceInterieure(globales[0], bas[2], haut[2], tick, d.tickBas, d.tickHaut),
+          croissanceInterieure(globales[1], bas[3], haut[3], tick, d.tickBas, d.tickHaut),
+        ]
+      }
+    }
+    if (!croissance) throw new Error(`croissance des fees de la position #${d.ref.id} illisible`)
+    const j0 = infoJeton(d.currency0)
+    const j1 = infoJeton(d.currency1)
     const racine = racinePrixX96(sqrtPriceX96)
     const [quantite0, quantite1] = quantitesLisibles(d.liquidite, racine, d.tickBas, d.tickHaut, j0.decimales, j1.decimales)
     return {
@@ -380,11 +447,11 @@ async function etatsV4(chaine: IdChaine, refs: RefPosition[]): Promise<EtatPosit
       horodatage,
       jeton0: j0,
       jeton1: j1,
-      feeOuEspacement: d.cle.fee === FRAIS_DYNAMIQUES ? Number(fraisLp) : d.cle.fee,
+      feeOuEspacement: d.fee === FRAIS_DYNAMIQUES ? Number(fraisLp) : d.fee,
       tickBas: d.tickBas,
       tickHaut: d.tickHaut,
       liquidite: d.liquidite,
-      pool: d.v4.poolManager,
+      pool: d.s.poolManager,
       poolId: d.poolId,
       gaugeDuPool: null,
       sqrtPriceX96,
@@ -414,8 +481,8 @@ async function etatsV4(chaine: IdChaine, refs: RefPosition[]): Promise<EtatPosit
 export async function lireEtats(refs: RefPosition[], wallet: Address): Promise<EtatPosition[]> {
   const lots: Promise<EtatPosition[]>[] = []
   for (const chaine of Object.keys(CHAINES) as IdChaine[]) {
-    const v3 = refs.filter((r) => r.chaine === chaine && r.protocole !== 'uniswap-v4')
-    const v4 = refs.filter((r) => r.chaine === chaine && r.protocole === 'uniswap-v4')
+    const v3 = refs.filter((r) => r.chaine === chaine && !estSingleton(r.protocole))
+    const v4 = refs.filter((r) => r.chaine === chaine && estSingleton(r.protocole))
     if (v3.length) lots.push(etatsDeLaChaine(chaine, v3, wallet))
     if (v4.length) lots.push(etatsV4(chaine, v4))
   }

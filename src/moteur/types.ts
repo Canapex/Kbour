@@ -1,11 +1,13 @@
 import type { Address, Hex } from 'viem'
 
 export type IdChaine = 'ethereum' | 'base' | 'robinhood'
-export type Protocole = 'uniswap-v3' | 'uniswap-v4' | 'aerodrome'
+export type Protocole = 'uniswap-v3' | 'uniswap-v4' | 'pancakeswap-v3' | 'pancakeswap-infinity' | 'aerodrome'
 
 export const NOMS_PROTOCOLES: Record<Protocole, string> = {
   'uniswap-v3': 'Uniswap v3',
   'uniswap-v4': 'Uniswap v4',
+  'pancakeswap-v3': 'PancakeSwap v3',
+  'pancakeswap-infinity': 'PancakeSwap Infinity',
   aerodrome: 'Aerodrome',
 }
 
@@ -38,9 +40,9 @@ export interface EtatPosition {
   tickBas: number
   tickHaut: number
   liquidite: bigint
-  /** Contrat du pool ; en v4, le PoolManager, qui porte tous les pools de la chaîne. */
+  /** Contrat du pool ; en v4 (Uniswap, PancakeSwap Infinity), le PoolManager, qui porte tous les pools de la chaîne. */
   pool: Address
-  /** Uniswap v4 : identifiant du pool dans le PoolManager (keccak de sa clé) ; null ailleurs. */
+  /** v4 : identifiant du pool dans le PoolManager (keccak de sa clé) ; null ailleurs. */
   poolId: Hex | null
   /** Gauge du pool (Aerodrome), que la position soit stakée ou non. */
   gaugeDuPool: Address | null

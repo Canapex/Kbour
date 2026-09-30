@@ -1,6 +1,6 @@
 import { pad, toEventSelector, type Address } from 'viem'
 import { abiGauge, abiGestionnaire, abiPositionsV4, abiVoter } from './abis'
-import { AERODROME, CHAINES, UNISWAP_V3, UNISWAP_V4, masquerCle, raisonIndisponible } from './chaines'
+import { AERODROME, CHAINES, PANCAKESWAP_INFINITY, PANCAKESWAP_V3, UNISWAP_V3, UNISWAP_V4, estSingleton, masquerCle, raisonIndisponible } from './chaines'
 import { lireJournalDecoupe } from './historique'
 import { lireParPaquets, lireTout, valeur } from './lecture'
 import type { IdChaine, Protocole, RefPosition } from './types'
@@ -47,7 +47,7 @@ function ref(chaine: IdChaine, protocole: Protocole, gestionnaire: Address, id: 
   return { chaine, protocole, gestionnaire, id, gauge }
 }
 
-/** NFT de positions détenus directement par le wallet (contrats énumérables). */
+/** NFT de positions détenus directement par le wallet (contrats énumérables ; le MasterChef v3 de PancakeSwap l'est aussi). */
 async function nftDuWallet(chaine: IdChaine, gestionnaire: Address, wallet: Address): Promise<bigint[]> {
   const client = CHAINES[chaine].etat
   const n = await client.readContract({ address: gestionnaire, abi: abiGestionnaire, functionName: 'balanceOf', args: [wallet] })
@@ -61,12 +61,12 @@ async function nftDuWallet(chaine: IdChaine, gestionnaire: Address, wallet: Addr
 }
 
 /**
- * Uniswap v4 : le contrat des positions n'est pas énumérable. Les NFT reçus par le wallet se lisent dans le
+ * Uniswap v4 et PancakeSwap Infinity : le contrat des positions n'est pas énumérable. Les NFT reçus par le wallet se lisent dans le
  * journal (Transfer vers lui, depuis la création du contrat), puis on garde ceux qu'il détient encore.
  */
 async function nftV4DuWallet(chaine: IdChaine, gestionnaire: Address, creation: bigint, wallet: Address): Promise<bigint[]> {
   const c = CHAINES[chaine]
-  if (!c.journal) throw new Error('clé Alchemy requise pour retrouver les positions Uniswap v4')
+  if (!c.journal) throw new Error('clé Alchemy requise pour retrouver les positions v4')
   const haut = await c.etat.getBlockNumber()
   const recus = await lireJournalDecoupe(c, gestionnaire, [toEventSelector('Transfer(address,address,uint256)'), null, pad(wallet, { size: 32 })], creation, haut)
   const candidats = [...new Set(recus.map((l) => BigInt(l.topics[3]!)))]
@@ -101,7 +101,7 @@ async function garderOuvertes(chaine: IdChaine, candidats: RefPosition[]): Promi
   const res = await lireParPaquets(
     CHAINES[chaine].etat,
     candidats.map((c) =>
-      c.protocole === 'uniswap-v4'
+      estSingleton(c.protocole)
         ? { address: c.gestionnaire, abi: abiPositionsV4, functionName: 'getPositionLiquidity', args: [c.id] }
         : { address: c.gestionnaire, abi: abiGestionnaire, functionName: 'positions', args: [c.id] },
     ),
@@ -109,7 +109,7 @@ async function garderOuvertes(chaine: IdChaine, candidats: RefPosition[]): Promi
   const ouvertes: RefPosition[] = []
   const fermees: RefPosition[] = []
   candidats.forEach((c, i) => {
-    const liquidite = c.protocole === 'uniswap-v4' ? valeur<bigint>(res[i]) : (valeur<readonly unknown[]>(res[i])?.[7] as bigint | undefined)
+    const liquidite = estSingleton(c.protocole) ? valeur<bigint>(res[i]) : (valeur<readonly unknown[]>(res[i])?.[7] as bigint | undefined)
     if (liquidite === undefined) return
     if (liquidite > 0n) ouvertes.push(c)
     else fermees.push(c)
@@ -122,9 +122,12 @@ export interface Inventaire {
   /** Positions vidées mais toujours détenues : leur histoire reste lisible. */
   fermees: RefPosition[]
   erreurs: string[]
+  /** Ce qui est lu mais pas entièrement compté : à dire, sans être une panne. */
+  notes: string[]
 }
 
 export async function listerPositions(wallet: Address): Promise<Inventaire> {
+  const enFarm: string[] = []
   const sources: { nom: string; chaine: IdChaine; lire: () => Promise<RefPosition[]> }[] = [
     ...UNISWAP_V3.map((u) => ({
       nom: `Uniswap v3 (${CHAINES[u.chaine].nom})`,
@@ -137,6 +140,33 @@ export async function listerPositions(wallet: Address): Promise<Inventaire> {
       chaine: u.chaine,
       lire: async () =>
         (await nftV4DuWallet(u.chaine, u.gestionnaire, u.creation, wallet)).map((id) => ref(u.chaine, 'uniswap-v4', u.gestionnaire, id)),
+    })),
+    ...PANCAKESWAP_V3.map((p) => ({
+      nom: `PancakeSwap v3 (${CHAINES[p.chaine].nom})`,
+      chaine: p.chaine,
+      lire: async () =>
+        (await nftDuWallet(p.chaine, p.gestionnaire, wallet)).map((id) => ref(p.chaine, 'pancakeswap-v3', p.gestionnaire, id)),
+    })),
+    ...PANCAKESWAP_V3.flatMap((p) =>
+      p.masterChef
+        ? [
+            {
+              nom: `PancakeSwap v3 en farm (${CHAINES[p.chaine].nom})`,
+              chaine: p.chaine,
+              lire: async () => {
+                const ids = await nftDuWallet(p.chaine, p.masterChef!, wallet)
+                if (ids.length) enFarm.push(`${ids.length} position(s) PancakeSwap en farm sur ${CHAINES[p.chaine].nom} : fees comptées, CAKE pas encore`)
+                return ids.map((id) => ref(p.chaine, 'pancakeswap-v3', p.gestionnaire, id))
+              },
+            },
+          ]
+        : [],
+    ),
+    ...PANCAKESWAP_INFINITY.map((p) => ({
+      nom: `PancakeSwap Infinity (${CHAINES[p.chaine].nom})`,
+      chaine: p.chaine,
+      lire: async () =>
+        (await nftV4DuWallet(p.chaine, p.gestionnaire, p.creation, wallet)).map((id) => ref(p.chaine, 'pancakeswap-infinity', p.gestionnaire, id)),
     })),
     ...AERODROME.gestionnaires.map((g) => ({
       nom: `Aerodrome ${g.adresse.slice(0, 6)} (Base)`,
@@ -170,7 +200,7 @@ export async function listerPositions(wallet: Address): Promise<Inventaire> {
       erreurs.push(`${CHAINES[chaine].nom} : ${message(e)}`)
     }
   }
-  return { positions, fermees, erreurs }
+  return { positions, fermees, erreurs, notes: enFarm }
 }
 
 export function message(e: unknown): string {

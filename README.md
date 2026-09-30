@@ -4,6 +4,8 @@ Suivre ses positions de liquidité **sans Krystal**, directement sur la chaîne.
 
 - **Uniswap v3** sur Ethereum, Base et Robinhood Chain
 - **Uniswap v4** sur Ethereum, Base et Robinhood Chain
+- **PancakeSwap v3** sur Ethereum, Base et Robinhood Chain, positions en farm (MasterChef) comprises
+- **PancakeSwap Infinity** (sa v4, pools concentrés) sur Base
 - **Aerodrome (Slipstream)** sur Base, positions stakées comprises
 
 On entre une adresse de wallet, la page lit tout sur la chaîne et affiche, pour chaque position :
@@ -99,7 +101,7 @@ Les adresses ne sont écrites dans aucun fichier.
 - **Historique** : journal de la chaîne (`eth_getLogs`), donc les montants exacts des dépôts, retraits et réclamations.
 - **Fees en attente** : même calcul que le contrat ; vérifié identique à une réclamation simulée.
 - **AERO d'une position stakée** : compteur du gauge au moment du stake et de l'unstake ; vérifié égal aux AERO réellement versés.
-- **Uniswap v4** : le contrat n'émet ni dépôt ni retrait, et ses NFT ne s'énumèrent pas. Les positions se retrouvent
+- **Uniswap v4 et PancakeSwap Infinity** : le contrat n'émet ni dépôt ni retrait, et ses NFT ne s'énumèrent pas. Les positions se retrouvent
   par les NFT reçus par le wallet ; les montants se recalculent à partir des variations de liquidité du PoolManager
   et du prix du pool à l'instant même (dernier échange du bloc) ; les fees versées, par la croissance relevée
   avant et après chaque modification. Vérifié identique aux jetons réellement transférés (`outils/essai-v4.ts`).
@@ -107,4 +109,5 @@ Les adresses ne sont écrites dans aucun fichier.
 
 ## Pas encore fait
 
+- Les CAKE d'une position PancakeSwap en farm (ses fees sont comptées, pas ses CAKE) ; les pools « Bin » de PancakeSwap Infinity
 - L'alerte Telegram

@@ -1,7 +1,7 @@
 import { decodeEventLog, pad, parseAbi, toEventSelector, toHex, type Address, type Hex } from 'viem'
-import { abiGauge, abiPoolAerodrome, abiPoolUniswap, abiStateView } from './abis'
-import { AERODROME, CHAINES, UNISWAP_V3, v4De, type Chaine } from './chaines'
-import { selV4 } from './etat'
+import { abiDuPool, abiGauge } from './abis'
+import { AERODROME, CHAINES, PANCAKESWAP_V3, UNISWAP_V3, estSingleton, v4De, type Chaine } from './chaines'
+import { appelReleve, appelSlot0, selV4 } from './etat'
 import { lireTout, valeur } from './lecture'
 import { gainEntre, montantsExacts, prixLisible, racinePrixDuTick, racinePrixX96 } from './maths'
 import type { EtatPosition } from './types'
@@ -83,7 +83,10 @@ interface LogBrut {
 
 function blocDeCreation(etat: EtatPosition): bigint {
   const gestionnaire = etat.ref.gestionnaire.toLowerCase()
-  if (etat.ref.protocole === 'uniswap-v3') return UNISWAP_V3.find((u) => u.gestionnaire.toLowerCase() === gestionnaire)?.creation ?? 0n
+  // PancakeSwap a la même adresse sur chaque chaîne : on cherche aussi par chaîne.
+  const surLaChaine = (u: { chaine: string; gestionnaire: Address }) => u.chaine === etat.ref.chaine && u.gestionnaire.toLowerCase() === gestionnaire
+  if (etat.ref.protocole === 'uniswap-v3') return UNISWAP_V3.find(surLaChaine)?.creation ?? 0n
+  if (etat.ref.protocole === 'pancakeswap-v3') return PANCAKESWAP_V3.find(surLaChaine)?.creation ?? 0n
   return AERODROME.gestionnaires.find((g) => g.adresse.toLowerCase() === gestionnaire)?.creation ?? 0n
 }
 
@@ -143,7 +146,7 @@ export async function lireJournalDecoupe(
 }
 
 export async function reconstruireHistorique(etat: EtatPosition): Promise<Historique> {
-  if (etat.ref.protocole === 'uniswap-v4') return historiqueV4(etat)
+  if (estSingleton(etat.ref.protocole)) return historiqueV4(etat)
   const chaine = CHAINES[etat.ref.chaine]
   const chrono = Date.now()
   const aerodrome = etat.ref.protocole === 'aerodrome'
@@ -301,7 +304,7 @@ export async function reconstruireHistorique(etat: EtatPosition): Promise<Histor
   // 4. Prix de chaque mouvement : déduit des montants quand les deux jetons bougent,
   //    sinon (dépôt d'un seul côté) lu dans le pool à ce bloc.
   const sa = racinePrixDuTick(etat.tickBas)
-  const abiPool = aerodrome ? abiPoolAerodrome : abiPoolUniswap
+  const abiPool = abiDuPool(etat.ref.protocole)
   await Promise.all(
     mouvements.map(async (m) => {
       if (m.brut0 > 0n && m.brut1 > 0n && m.liquidite > 0n) {
@@ -359,29 +362,35 @@ export async function reconstruireHistorique(etat: EtatPosition): Promise<Histor
   }
 }
 
-// ── Uniswap v4 ──────────────────────────────────────────────────────────────────────────────────────────
+// ── Uniswap v4 et PancakeSwap Infinity ─────────────────────────────────────────────────────────────────
 // Le contrat des positions n'émet ni dépôt, ni retrait, ni collect : tout se lit dans le PoolManager, qui émet
 // ModifyLiquidity (pool, contrat appelant, ticks, variation de liquidité, sel = numéro du NFT). Les montants
 // n'y figurent pas : ils se recalculent au wei près avec la variation de liquidité et le prix du pool à cet
-// instant (montantsExacts) : celui du dernier échange du même bloc qui la précède, à défaut celui du bloc d'avant. Les fees sont versées à chaque modification, sans événement : c'est la croissance
-// relevée dans la position juste après, moins celle d'avant, fois la liquidité d'avant (Position.update).
+// instant (montantsExacts) : celui du dernier échange du même bloc qui la précède, à défaut celui du bloc
+// d'avant. Les fees sont versées à chaque modification, sans événement : c'est la croissance relevée dans la
+// position juste après, moins celle d'avant, fois la liquidité d'avant (Position.update). PancakeSwap émet le
+// même ModifyLiquidity ; ses Swap et Initialize ont d'autres champs, donc d'autres signatures.
 
 const abiPoolManager = parseAbi([
   'event ModifyLiquidity(bytes32 indexed id, address indexed sender, int24 tickLower, int24 tickUpper, int256 liquidityDelta, bytes32 salt)',
   'event Swap(bytes32 indexed id, address indexed sender, int128 amount0, int128 amount1, uint160 sqrtPriceX96, uint128 liquidity, int24 tick, uint24 fee)',
   'event Initialize(bytes32 indexed id, address indexed currency0, address indexed currency1, uint24 fee, int24 tickSpacing, address hooks, uint160 sqrtPriceX96, int24 tick)',
+  'event Swap(bytes32 indexed id, address indexed sender, int128 amount0, int128 amount1, uint160 sqrtPriceX96, uint128 liquidity, int24 tick, uint24 fee, uint16 protocolFee)',
+  'event Initialize(bytes32 indexed id, address indexed currency0, address indexed currency1, address hooks, uint24 fee, bytes32 parameters, uint160 sqrtPriceX96, int24 tick)',
 ])
 const MODIFICATION = toEventSelector('ModifyLiquidity(bytes32,address,int24,int24,int256,bytes32)')
 /** Ce qui fixe le prix d'un pool v4 : un échange, ou sa création (souvent dans la même transaction que le premier dépôt). */
 const PRIX_FIXE = [
   toEventSelector('Swap(bytes32,address,int128,int128,uint160,uint128,int24,uint24)'),
   toEventSelector('Initialize(bytes32,address,address,uint24,int24,address,uint160,int24)'),
+  toEventSelector('Swap(bytes32,address,int128,int128,uint160,uint128,int24,uint24,uint16)'),
+  toEventSelector('Initialize(bytes32,address,address,address,uint24,bytes32,uint160,int24)'),
 ]
 
 async function historiqueV4(etat: EtatPosition): Promise<Historique> {
   const chaine = CHAINES[etat.ref.chaine]
   const chrono = Date.now()
-  const v4 = v4De(etat.ref.gestionnaire)!
+  const v4 = v4De(etat.ref.chaine, etat.ref.gestionnaire)!
   const sel = selV4(etat.ref.id)
   let requetes = 0
 
@@ -421,8 +430,8 @@ async function historiqueV4(etat: EtatPosition): Promise<Historique> {
   )
 
   // 2. Pour chaque bloc touché : prix du pool et relevé de la position juste avant, relevé juste après.
-  const releve = { address: v4.stateView, abi: abiStateView, functionName: 'getPositionInfo', args: [etat.poolId!, etat.ref.gestionnaire, etat.tickBas, etat.tickHaut, sel] }
-  const slot0 = { address: v4.stateView, abi: abiStateView, functionName: 'getSlot0', args: [etat.poolId!] }
+  const releve = appelReleve(v4, etat.poolId!, etat.tickBas, etat.tickHaut, etat.ref.id)
+  const slot0 = appelSlot0(v4, etat.poolId!)
   const blocs = [...new Set(modifications.map((m) => m.bloc))]
   const lectures = new Map(
     await Promise.all(

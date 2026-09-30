@@ -1,4 +1,5 @@
 import { parseAbi } from 'viem'
+import type { Protocole } from './types'
 
 // Signatures relevées dans les sources vérifiées (Blockscout) le 17/09/2026.
 
@@ -26,6 +27,23 @@ export const abiStateView = parseAbi([
   'function getPositionInfo(bytes32 poolId, address owner, int24 tickLower, int24 tickUpper, bytes32 salt) view returns (uint128 liquidity, uint256 feeGrowthInside0LastX128, uint256 feeGrowthInside1LastX128)',
 ])
 
+/**
+ * PancakeSwap Infinity : contrat des positions et PoolManager des pools concentrés (sources vérifiées, Blockscout
+ * Base, 30/09/2026). Les structures renvoyées (position, tick) sont à plat : même encodage, lecture plus simple.
+ */
+export const abiPositionsInfinity = parseAbi([
+  'function ownerOf(uint256 id) view returns (address)',
+  'function positions(uint256 tokenId) view returns ((address currency0, address currency1, address hooks, address poolManager, uint24 fee, bytes32 parameters) poolKey, int24 tickLower, int24 tickUpper, uint128 liquidity, uint256 feeGrowthInside0LastX128, uint256 feeGrowthInside1LastX128, address _subscriber)',
+  'function getPositionLiquidity(uint256 tokenId) view returns (uint128 liquidity)',
+])
+export const abiPoolManagerInfinity = parseAbi([
+  'function getSlot0(bytes32 id) view returns (uint160 sqrtPriceX96, int24 tick, uint24 protocolFee, uint24 lpFee)',
+  'function getLiquidity(bytes32 id) view returns (uint128 liquidity)',
+  'function getFeeGrowthGlobals(bytes32 id) view returns (uint256 feeGrowthGlobal0x128, uint256 feeGrowthGlobal1x128)',
+  'function getPoolTickInfo(bytes32 id, int24 tick) view returns (uint128 liquidityGross, int128 liquidityNet, uint256 feeGrowthOutside0X128, uint256 feeGrowthOutside1X128)',
+  'function getPosition(bytes32 id, address owner, int24 tickLower, int24 tickUpper, bytes32 salt) view returns (uint128 liquidity, uint256 feeGrowthInside0LastX128, uint256 feeGrowthInside1LastX128)',
+])
+
 export const abiFactoryUniswap = parseAbi([
   'function getPool(address tokenA, address tokenB, uint24 fee) view returns (address)',
 ])
@@ -38,6 +56,16 @@ export const abiPoolUniswap = parseAbi([
   'function liquidity() view returns (uint128)',
   'function fee() view returns (uint24)',
   'function slot0() view returns (uint160 sqrtPriceX96, int24 tick, uint16 observationIndex, uint16 observationCardinality, uint16 observationCardinalityNext, uint8 feeProtocol, bool unlocked)',
+  'function feeGrowthGlobal0X128() view returns (uint256)',
+  'function feeGrowthGlobal1X128() view returns (uint256)',
+  'function ticks(int24 tick) view returns (uint128 liquidityGross, int128 liquidityNet, uint256 feeGrowthOutside0X128, uint256 feeGrowthOutside1X128, int56 tickCumulativeOutside, uint160 secondsPerLiquidityOutsideX128, uint32 secondsOutside, bool initialized)',
+])
+
+/** PancakeSwap v3 : comme Uniswap v3, mais feeProtocol tient sur 32 bits. */
+export const abiPoolPancake = parseAbi([
+  'function liquidity() view returns (uint128)',
+  'function fee() view returns (uint24)',
+  'function slot0() view returns (uint160 sqrtPriceX96, int24 tick, uint16 observationIndex, uint16 observationCardinality, uint16 observationCardinalityNext, uint32 feeProtocol, bool unlocked)',
   'function feeGrowthGlobal0X128() view returns (uint256)',
   'function feeGrowthGlobal1X128() view returns (uint256)',
   'function ticks(int24 tick) view returns (uint128 liquidityGross, int128 liquidityNet, uint256 feeGrowthOutside0X128, uint256 feeGrowthOutside1X128, int56 tickCumulativeOutside, uint160 secondsPerLiquidityOutsideX128, uint32 secondsOutside, bool initialized)',
@@ -88,3 +116,6 @@ export const abiMulticall3 = parseAbi([
   'function getBlockNumber() view returns (uint256)',
   'function getCurrentBlockTimestamp() view returns (uint256)',
 ])
+
+export const abiDuPool = (protocole: Protocole) =>
+  protocole === 'aerodrome' ? abiPoolAerodrome : protocole === 'pancakeswap-v3' ? abiPoolPancake : abiPoolUniswap
